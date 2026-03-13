@@ -39,6 +39,13 @@ The minimal runtime loop is now implemented and has entered the first observable
 - recovery: release stale in-flight dispatches, detect execution / review timeouts, and escalate blocked tasks
 - role health: produce per-role running / degraded snapshots and feed service health payloads
 
+The runtime control plane now also includes integration-aware service semantics:
+
+- gateway hook auto-registration state
+- maintenance-driven registration retry with backoff window
+- integration-aware operator guidance and intervention summary
+- readiness blocking when repeated upstream registration failures exceed the configured threshold
+
 ## External storytelling vs runtime truth
 
 For product communication, the same 3-agent runtime can be framed as a **Ming-style small cabinet**:
@@ -49,3 +56,7 @@ For product communication, the same 3-agent runtime can be framed as a **Ming-st
 - `reviewer` = Supervising Reviewer / 监审官
 
 This framing must remain outside the runtime source of truth. Code, APIs, tests, and storage continue to use canonical role ids: `coordinator`, `executor`, and `reviewer`.
+
+## Operations handoff
+
+For day-2 operations, see `docs/operations-runbook.md`.

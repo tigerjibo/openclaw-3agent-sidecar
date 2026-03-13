@@ -34,6 +34,14 @@ def test_load_config_reads_maintenance_interval_from_env(monkeypatch) -> None:
     assert config["maintenance_interval_sec"] == 7
 
 
+def test_load_config_reads_integration_probe_ttl_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_INTEGRATION_PROBE_TTL_SEC", "42")
+
+    config = load_config()
+
+    assert config["integration_probe_ttl_sec"] == 42
+
+
 def test_service_runner_run_maintenance_cycle_recovers_timeout_and_dispatches_ready_task() -> None:
     runner = ServiceRunner(
         config={
@@ -208,6 +216,8 @@ def test_service_runner_maintenance_payload_reports_last_cycle_summary() -> None
     assert before["last_cycle"] is None
     assert after["interval_sec"] == 0
     assert after["last_cycle"] is not None
+    assert "integration" in after
+    assert "probe" in after["integration"]
     assert after["last_cycle"]["dispatched_count"] == summary["dispatched_count"]
     assert task_id in after["last_cycle"]["dispatched_task_ids"]
 
@@ -235,4 +245,276 @@ def test_runtime_maintenance_endpoint_returns_last_cycle_summary() -> None:
 
     assert body["status"] == "ok"
     assert body["maintenance"]["last_cycle"] is not None
+    assert "integration" in body["maintenance"]
+    assert "probe" in body["maintenance"]["integration"]
     assert body["maintenance"]["last_cycle"]["dispatched_count"] >= 1
+
+
+def test_maintenance_cycle_retries_failed_gateway_hook_registration() -> None:
+    class FlakyGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("gateway offline")
+            return {"accepted": True, "ok": True, "status_code": 202, "response": {"registered": True}}
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 200, "kind": None, "message": None}
+
+    gateway = FlakyGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        runner.run_maintenance_cycle(now=retry_time)
+        second = runner.integration_payload(now=retry_time)
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 2
+    assert first["gateway"]["hook_registration"]["status"] == "register_failed"
+    assert second["gateway"]["hook_registration"] == {
+        "status": "registered",
+        "registered_at": retry_time.isoformat(),
+        "last_attempt_at": retry_time.isoformat(),
+        "next_retry_at": None,
+        "attempt_count": 2,
+        "public_base_url": "https://sidecar.example.com/kernel",
+        "ingress_url": "https://sidecar.example.com/kernel/hooks/openclaw/ingress",
+        "result_url": "https://sidecar.example.com/kernel/hooks/openclaw/result",
+        "accepted": True,
+        "status_code": 202,
+        "message": None,
+    }
+
+
+def test_maintenance_cycle_skips_hook_reregistration_after_success() -> None:
+    class StableGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            return {"accepted": True, "ok": True, "status_code": 202, "response": {"registered": True}}
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 200, "kind": None, "message": None}
+
+    gateway = StableGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        runner.run_maintenance_cycle(now=datetime(2026, 3, 13, 4, 15, 0))
+        payload = runner.integration_payload(now=datetime(2026, 3, 13, 4, 15, 0))
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 1
+    assert payload["gateway"]["hook_registration"]["status"] == "registered"
+    assert payload["gateway"]["hook_registration"]["attempt_count"] == 1
+
+
+def test_maintenance_cycle_respects_hook_registration_retry_interval_after_failure() -> None:
+    class FailingGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            raise RuntimeError("gateway offline")
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "Unable to reach OpenClaw gateway."}
+
+    gateway = FailingGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 600,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        before_retry = retry_time - timedelta(seconds=1)
+        runner.run_maintenance_cycle(now=before_retry)
+        second = runner.integration_payload(now=before_retry)
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 1
+    assert first["gateway"]["hook_registration"]["status"] == "register_failed"
+    assert first["gateway"]["hook_registration"]["next_retry_at"] == first["gateway"]["hook_registration"]["next_retry_at"]
+    assert second["gateway"]["hook_registration"] == first["gateway"]["hook_registration"]
+
+
+def test_maintenance_cycle_retries_hook_registration_after_retry_interval_elapsed() -> None:
+    class FlakyGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("gateway offline")
+            return {"accepted": True, "ok": True, "status_code": 202, "response": {"registered": True}}
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 200, "kind": None, "message": None}
+
+    gateway = FlakyGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 60,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        retry_after = retry_time + timedelta(seconds=1)
+        runner.run_maintenance_cycle(now=retry_after)
+        second = runner.integration_payload(now=retry_after)
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 2
+    assert first["gateway"]["hook_registration"]["status"] == "register_failed"
+    assert first["gateway"]["hook_registration"]["next_retry_at"] == first["gateway"]["hook_registration"]["next_retry_at"]
+    assert second["gateway"]["hook_registration"]["status"] == "registered"
+    assert second["gateway"]["hook_registration"]["attempt_count"] == 2
+    assert second["gateway"]["hook_registration"]["next_retry_at"] is None
+
+
+def test_maintenance_cycle_reports_hook_registration_retry_activity() -> None:
+    class FlakyGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("gateway offline")
+            return {"accepted": True, "ok": True, "status_code": 202, "response": {"registered": True}}
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 200, "kind": None, "message": None}
+
+    gateway = FlakyGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 60,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        summary = runner.run_maintenance_cycle(now=retry_time)
+    finally:
+        runner.stop()
+
+    assert summary["hook_registration"] == {
+        "attempted": True,
+        "status_before": "register_failed",
+        "status_after": "registered",
+        "attempt_count": 2,
+    }
+
+
+def test_maintenance_cycle_reports_skipped_hook_registration_retry_before_window() -> None:
+    class FailingGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            raise RuntimeError("gateway offline")
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "Unable to reach OpenClaw gateway."}
+
+    gateway = FailingGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 600,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        summary = runner.run_maintenance_cycle(now=retry_time - timedelta(seconds=1))
+    finally:
+        runner.stop()
+
+    assert summary["hook_registration"] == {
+        "attempted": False,
+        "status_before": "register_failed",
+        "status_after": "register_failed",
+        "attempt_count": 1,
+    }

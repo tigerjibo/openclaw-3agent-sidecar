@@ -119,6 +119,14 @@ CONFIG_EXECUTING_TIMEOUT_SEC: Final[str] = "executing_timeout_sec"
 CONFIG_REVIEWING_TIMEOUT_SEC: Final[str] = "reviewing_timeout_sec"
 CONFIG_BLOCKED_ALERT_AFTER_SEC: Final[str] = "blocked_alert_after_sec"
 CONFIG_DEFAULT_RUNTIME_MODE: Final[str] = "default_runtime_mode"
+CONFIG_RUNTIME_INVOKE_URL: Final[str] = "runtime_invoke_url"
+CONFIG_INTEGRATION_PROBE_TTL_SEC: Final[str] = "integration_probe_ttl_sec"
+CONFIG_HOOK_REGISTRATION_RETRY_SEC: Final[str] = "hook_registration_retry_sec"
+CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER: Final[str] = "hook_registration_failure_alert_after"
+CONFIG_LOG_LEVEL: Final[str] = "log_level"
+CONFIG_GATEWAY_BASE_URL: Final[str] = "gateway_base_url"
+CONFIG_HOOKS_TOKEN: Final[str] = "hooks_token"
+CONFIG_PUBLIC_BASE_URL: Final[str] = "public_base_url"
 
 CONFIG_KEYS: Final[tuple[str, ...]] = (
     CONFIG_HOST,
@@ -129,4 +137,12 @@ CONFIG_KEYS: Final[tuple[str, ...]] = (
     CONFIG_REVIEWING_TIMEOUT_SEC,
     CONFIG_BLOCKED_ALERT_AFTER_SEC,
     CONFIG_DEFAULT_RUNTIME_MODE,
+    CONFIG_RUNTIME_INVOKE_URL,
+    CONFIG_INTEGRATION_PROBE_TTL_SEC,
+    CONFIG_HOOK_REGISTRATION_RETRY_SEC,
+    CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER,
+    CONFIG_LOG_LEVEL,
+    CONFIG_GATEWAY_BASE_URL,
+    CONFIG_HOOKS_TOKEN,
+    CONFIG_PUBLIC_BASE_URL,
 )

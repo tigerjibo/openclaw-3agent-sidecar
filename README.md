@@ -146,10 +146,10 @@ Use these when introducing the project externally:
 
 The next practical engineering priorities are:
 
-1. persistent DB path in `sidecar/service_runner.py`
-2. periodic recovery / health driving from scheduler / service runner
-3. stronger restart / stale / blocked regression coverage
-4. real OpenClaw ingress / invoke / result wiring
+1. richer maintenance trend and intervention summaries for operators
+2. stronger restart / stale / blocked regression coverage
+3. broader real OpenClaw integration around upstream gateway / hooks usage
+4. production deployment hardening beyond the initial sample scaffolding
 
 ## Current scope
 
@@ -157,18 +157,78 @@ This initial migration carries over the reusable task-kernel foundation from the
 
 Planned next layers:
 
-- persistent DB path in `service_runner.py`
-- scheduler / service runner wiring for periodic recovery
-- deeper role health tracking and readiness integration
-- real OpenClaw ingress / invoke / result integration
-- production deployment scaffolding
+- deeper maintenance trend and operator guidance
+- broader OpenClaw gateway / webhook integration around the adapter layer
+- stronger role health tracking and readiness integration
+- production deployment hardening and operational conventions
 
 ## Layout
 
 - `sidecar/` — core package
 - `sidecar/roles/` — shared and role-specific prompt files
 - `docs/` — architecture and migration notes
+- `deploy/` — sample deployment assets for Linux systemd and Windows startup
+
+Useful docs for handoff and operations:
+
+- `docs/architecture.md`
+- `docs/product-requirements-roadmap.md`
+- `docs/operations-runbook.md`
 
 ## Environment
 
 See `.env.example` and `.env` for the initial placeholder configuration.
+
+Current gateway / hook related config includes:
+
+- `OPENCLAW_GATEWAY_BASE_URL`
+- `OPENCLAW_HOOKS_TOKEN`
+- `OPENCLAW_PUBLIC_BASE_URL`
+- `OPENCLAW_HOOK_REGISTRATION_RETRY_SEC`
+- `OPENCLAW_HOOK_REGISTRATION_FAILURE_ALERT_AFTER`
+- `OPENCLAW_RUNTIME_INVOKE_URL`
+- `OPENCLAW_INTEGRATION_PROBE_TTL_SEC`
+
+The adapter layer also now includes a lightweight OpenClaw gateway client skeleton for:
+
+- posting ingress/result hooks with the configured token
+- registering hook endpoints with an upstream gateway
+- querying current hook status from the upstream gateway
+
+The sidecar now exposes an authenticated ingress hook for upstream integration:
+
+- `POST /hooks/openclaw/ingress`
+- `POST /hooks/openclaw/result`
+- header: `X-OpenClaw-Hooks-Token: <OPENCLAW_HOOKS_TOKEN>`
+
+When `OPENCLAW_PUBLIC_BASE_URL` is configured, the service runner will also try to
+auto-register these hook callback URLs with the upstream gateway during startup,
+and the current registration state is surfaced under `integration.gateway.hook_registration`.
+Failed registration attempts are retried during maintenance cycles, but they are
+rate-limited by `OPENCLAW_HOOK_REGISTRATION_RETRY_SEC` so the sidecar does not keep
+hammering an unhealthy upstream gateway.
+
+Task event audit summaries now also record whether ingress/result arrived via `local`, `runtime`, or `hook` channels.
+
+The ops and health payloads now also summarize integration configuration state for gateway hooks and runtime invoke wiring.
+
+They also include a lightweight integration probe summary so operators can distinguish between **configured**, **reachable**, **degraded**, and **not configured** states without reading raw logs first.
+
+The probe summary is cached inside the service runner and exposes a `probed_at` timestamp; normal reads reuse the cached result, maintenance cycles refresh it in the background, and `OPENCLAW_INTEGRATION_PROBE_TTL_SEC` controls when a cached probe result should be considered stale and re-checked on demand.
+
+The hook registration summary also exposes `attempt_count`, `last_attempt_at`, and
+`next_retry_at` so operators can tell whether automatic repair has already been tried
+and when the next retry window opens.
+
+If hook registration keeps failing and the attempt count reaches
+`OPENCLAW_HOOK_REGISTRATION_FAILURE_ALERT_AFTER`, the service health payload will
+degrade even when task dispatch itself is otherwise idle, so repeated upstream
+integration failures are not silently ignored.
+
+If the same repeated upstream failure also crosses the readiness threshold, `readyz`
+will return `blocked` with reason `integration=gateway_hook_registration`, making it
+clear that the sidecar should not be treated as fully ready for integrated traffic.
+
+When a probe is not cleanly reachable, the component payload may also include structured
+`kind` and `message` fields such as `network_error`, `http_4xx`, `http_5xx`,
+`probe_error`, or `probe_exception` to help operators triage the likely failure mode quickly.
