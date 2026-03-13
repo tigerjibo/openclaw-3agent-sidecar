@@ -76,6 +76,12 @@ class LocalTaskKernelHttpService:
             self._write_json(handler, 200, runner.readiness_payload() if runner is not None else {"status": "ready"})
             return
 
+        if method == "GET" and path == "/runtime/maintenance":
+            runner = getattr(self, "service_runner", None)
+            payload = runner.maintenance_payload() if runner is not None else {"status": "ok", "maintenance_enabled": False, "interval_sec": 0, "last_cycle": None}
+            self._write_json(handler, 200, {"status": "ok", "maintenance": payload})
+            return
+
         if method == "GET" and path == "/exceptions":
             conn = self._require_conn()
             cfg = load_config()

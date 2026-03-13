@@ -46,6 +46,8 @@ class ServiceRunner:
         self._agent_health = AgentHealthMonitor(self._app)
         self._maintenance_stop = threading.Event()
         self._maintenance_thread: threading.Thread | None = None
+        self._maintenance_lock = threading.Lock()
+        self._last_maintenance_summary: dict[str, Any] | None = None
         self._http = LocalTaskKernelHttpService(app=self._app, host=self._config["host"], port=self._config["port"])
         self._http.service_runner = self  # type: ignore[attr-defined]
 
@@ -74,11 +76,24 @@ class ServiceRunner:
         cycle_time = now or datetime.utcnow()
         recovery_summary = self._recovery.run_once(now=cycle_time)
         dispatched = self._scheduler.dispatch_ready_tasks(limit=10)
-        return {
+        summary = {
             "cycle_started_at": cycle_time.isoformat(),
             "recovery": recovery_summary,
             "dispatched_count": len(dispatched),
             "dispatched_task_ids": [str(item["task_id"]) for item in dispatched],
+        }
+        with self._maintenance_lock:
+            self._last_maintenance_summary = dict(summary)
+        return summary
+
+    def maintenance_payload(self) -> dict[str, Any]:
+        with self._maintenance_lock:
+            last_cycle = dict(self._last_maintenance_summary) if self._last_maintenance_summary is not None else None
+        return {
+            "status": HEALTH_OK if self.lifecycle_state == "ready" else HEALTH_FAILED,
+            "interval_sec": self._config["maintenance_interval_sec"],
+            "maintenance_enabled": float(self._config["maintenance_interval_sec"]) > 0,
+            "last_cycle": last_cycle,
         }
 
     def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
