@@ -105,3 +105,79 @@ def test_service_runner_background_runtime_loop_dispatches_task() -> None:
     assert task is not None
     assert task["dispatch_status"] == "running"
     assert task["dispatch_role"] == "coordinator"
+
+
+def test_service_runner_maintenance_cycle_recovers_persisted_inflight_task_after_restart(tmp_path) -> None:
+    db_path = tmp_path / "state" / "runtime-loop.sqlite3"
+    config = {
+        "host": "127.0.0.1",
+        "port": 0,
+        "default_runtime_mode": "legacy_single",
+        "db_path": str(db_path),
+        "maintenance_interval_sec": 0,
+        "executing_timeout_sec": 3600,
+        "reviewing_timeout_sec": 3600,
+        "blocked_alert_after_sec": 3600,
+    }
+
+    first_runner = ServiceRunner(config=config)
+    try:
+        first_runner.start()
+        task_id = _create_task(first_runner, request_id="req-service-runner-restart-inflight")
+        summary_before_stop = first_runner.run_maintenance_cycle(now=datetime.utcnow())
+        assert task_id in summary_before_stop["dispatched_task_ids"]
+    finally:
+        first_runner.stop()
+
+    second_runner = ServiceRunner(config=config)
+    conn = second_runner._app.conn
+    assert conn is not None
+    try:
+        second_runner.start()
+        summary_after_restart = second_runner.run_maintenance_cycle(now=datetime.utcnow())
+        task = get_task_by_id(conn, task_id)
+    finally:
+        second_runner.stop()
+
+    assert task_id in summary_after_restart["recovery"]["recover_dispatch"]
+    assert task_id in summary_after_restart["dispatched_task_ids"]
+    assert task is not None
+    assert task["dispatch_status"] == "running"
+    assert task["dispatch_role"] == "coordinator"
+    assert task["dispatch_attempts"] == 2
+
+
+def test_service_runner_maintenance_cycle_escalates_blocked_task_without_dispatching_it() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "blocked_alert_after_sec": 60,
+        }
+    )
+    conn = runner._app.conn
+    assert conn is not None
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-blocked-no-dispatch")
+        update_task_fields(
+            conn,
+            task_id,
+            blocked=1,
+            block_reason="waiting external dependency",
+            block_since=(datetime.utcnow() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        summary = runner.run_maintenance_cycle(now=datetime.utcnow())
+        task = get_task_by_id(conn, task_id)
+    finally:
+        runner.stop()
+
+    assert task_id in summary["recovery"]["escalate_blocked"]
+    assert task_id not in summary["dispatched_task_ids"]
+    assert task is not None
+    assert task["blocked"] == 1
+    assert task["dispatch_status"] == "idle"
