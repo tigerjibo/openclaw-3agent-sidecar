@@ -51,6 +51,9 @@ def test_service_runner_ops_summary_payload_aggregates_health_readiness_and_main
     assert payload["operator_guidance"]["action"] == "observe"
     assert payload["intervention_summary"]["priority_category"] is None
     assert payload["intervention_summary"]["attention_task_ids"] == []
+    assert payload["intervention_summary"]["resolved_categories"] == []
+    assert payload["intervention_summary"]["unresolved_categories"] == []
+    assert payload["intervention_summary"]["attention_reason"] == "No active anomalies require intervention."
     assert task_id in payload["maintenance"]["last_cycle"]["dispatched_task_ids"]
 
 
@@ -89,6 +92,9 @@ def test_ops_summary_payload_surfaces_blocked_anomaly_and_investigate_guidance()
     assert payload["intervention_summary"]["priority_category"] == "blocked"
     assert payload["intervention_summary"]["attention_task_ids"] == [task_id]
     assert payload["intervention_summary"]["maintenance_effectiveness"] == "no_recent_maintenance"
+    assert payload["intervention_summary"]["resolved_categories"] == []
+    assert payload["intervention_summary"]["unresolved_categories"] == ["blocked"]
+    assert payload["intervention_summary"]["attention_reason"] == "Priority focus is blocked because blocked anomalies remain without a recent maintenance cycle."
 
 
 def test_ops_summary_payload_prefers_manual_intervention_when_health_is_degraded() -> None:
@@ -123,6 +129,7 @@ def test_ops_summary_payload_prefers_manual_intervention_when_health_is_degraded
     assert payload["health"]["status"] == "degraded"
     assert payload["operator_guidance"]["action"] == "manual_intervention"
     assert payload["intervention_summary"]["priority_category"] is None
+    assert payload["intervention_summary"]["attention_reason"] == "Service health is degraded; prioritize manual intervention before anomaly triage."
 
 
 def test_ops_summary_payload_marks_maintenance_as_in_progress_when_recent_cycle_had_actions() -> None:
@@ -156,6 +163,47 @@ def test_ops_summary_payload_marks_maintenance_as_in_progress_when_recent_cycle_
 
     assert payload["intervention_summary"]["priority_category"] == "blocked"
     assert payload["intervention_summary"]["maintenance_effectiveness"] == "in_progress"
+    assert payload["intervention_summary"]["resolved_categories"] == []
+    assert payload["intervention_summary"]["unresolved_categories"] == ["blocked"]
+    assert payload["intervention_summary"]["attention_reason"] == "Priority focus is blocked because maintenance has started acting on it, but the anomaly remains active."
+
+
+def test_ops_summary_payload_reports_resolved_timeout_categories_after_maintenance() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "executing_timeout_sec": 60,
+        }
+    )
+    conn = runner._app.conn
+    assert conn is not None
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-ops-summary-resolved-timeout")
+        update_task_fields(
+            conn,
+            task_id,
+            state="executing",
+            current_role="executor",
+            dispatch_status="running",
+            dispatch_role="executor",
+            dispatch_started_at="2026-03-13 00:00:00",
+        )
+
+        runner.run_maintenance_cycle(now=datetime(2026, 3, 13, 1, 0, 0))
+        payload = runner.ops_summary_payload(now=datetime(2026, 3, 13, 1, 0, 0))
+    finally:
+        runner.stop()
+
+    assert payload["anomalies"]["total_count"] == 0
+    assert payload["intervention_summary"]["resolved_categories"] == ["execution_timeout"]
+    assert payload["intervention_summary"]["unresolved_categories"] == []
+    assert payload["intervention_summary"]["maintenance_effectiveness"] == "healthy"
+    assert payload["intervention_summary"]["attention_reason"] == "Recent maintenance resolved previously detected execution_timeout anomalies."
 
 
 def test_ops_summary_endpoint_returns_aggregated_runner_state() -> None:

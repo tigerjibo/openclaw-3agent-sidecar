@@ -30,6 +30,30 @@ def get_state_entry_time(conn: sqlite3.Connection, task_id: str, state: str) -> 
     return datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _get_timeout_reference_time(conn: sqlite3.Connection, task_id: str, state: str, dispatch_started_at: Any) -> datetime | None:
+    started_at = _parse_datetime(dispatch_started_at)
+    if started_at is not None:
+        return started_at
+    return get_state_entry_time(conn, task_id, state)
+
+
 def compute_metrics_snapshot(
     conn: sqlite3.Connection,
     *,
@@ -49,14 +73,14 @@ def compute_metrics_snapshot(
     ).fetchone()["cnt"]
 
     review_timeout_count = 0
-    for row in conn.execute("SELECT task_id FROM tasks WHERE state = ?", (STATE_REVIEWING,)).fetchall():
-        entry_time = get_state_entry_time(conn, row["task_id"], STATE_REVIEWING)
+    for row in conn.execute("SELECT task_id, dispatch_started_at FROM tasks WHERE state = ?", (STATE_REVIEWING,)).fetchall():
+        entry_time = _get_timeout_reference_time(conn, row["task_id"], STATE_REVIEWING, row["dispatch_started_at"])
         if entry_time is not None and (now - entry_time).total_seconds() > reviewing_timeout_sec:
             review_timeout_count += 1
 
     execution_timeout_count = 0
-    for row in conn.execute("SELECT task_id FROM tasks WHERE state = ?", (STATE_EXECUTING,)).fetchall():
-        entry_time = get_state_entry_time(conn, row["task_id"], STATE_EXECUTING)
+    for row in conn.execute("SELECT task_id, dispatch_started_at FROM tasks WHERE state = ?", (STATE_EXECUTING,)).fetchall():
+        entry_time = _get_timeout_reference_time(conn, row["task_id"], STATE_EXECUTING, row["dispatch_started_at"])
         if entry_time is not None and (now - entry_time).total_seconds() > executing_timeout_sec:
             execution_timeout_count += 1
 
@@ -84,16 +108,16 @@ def compute_anomaly_summary(
         anomalies.append({"category": ANOMALY_BLOCKED, "task_ids": blocked_ids})
 
     review_timeout_ids = []
-    for row in conn.execute("SELECT task_id FROM tasks WHERE state = ?", (STATE_REVIEWING,)).fetchall():
-        entry_time = get_state_entry_time(conn, row["task_id"], STATE_REVIEWING)
+    for row in conn.execute("SELECT task_id, dispatch_started_at FROM tasks WHERE state = ?", (STATE_REVIEWING,)).fetchall():
+        entry_time = _get_timeout_reference_time(conn, row["task_id"], STATE_REVIEWING, row["dispatch_started_at"])
         if entry_time is not None and (now - entry_time).total_seconds() > reviewing_timeout_sec:
             review_timeout_ids.append(row["task_id"])
     if review_timeout_ids:
         anomalies.append({"category": ANOMALY_REVIEW_TIMEOUT, "task_ids": review_timeout_ids})
 
     exec_timeout_ids = []
-    for row in conn.execute("SELECT task_id FROM tasks WHERE state = ?", (STATE_EXECUTING,)).fetchall():
-        entry_time = get_state_entry_time(conn, row["task_id"], STATE_EXECUTING)
+    for row in conn.execute("SELECT task_id, dispatch_started_at FROM tasks WHERE state = ?", (STATE_EXECUTING,)).fetchall():
+        entry_time = _get_timeout_reference_time(conn, row["task_id"], STATE_EXECUTING, row["dispatch_started_at"])
         if entry_time is not None and (now - entry_time).total_seconds() > executing_timeout_sec:
             exec_timeout_ids.append(row["task_id"])
     if exec_timeout_ids:
