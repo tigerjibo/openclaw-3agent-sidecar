@@ -106,6 +106,14 @@ class LocalTaskKernelHttpService:
             self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 
+        if method == "POST" and path.startswith("/runtime/unblock/"):
+            task_id = path.rsplit("/", 1)[-1]
+            body = self._read_json_body(handler) or {}
+            body.setdefault("actor_role", "human")
+            response = self.app.handle_request("POST", f"/tasks/{task_id}/unblock", body=body)
+            self._write_json(handler, response["status"], response["body"])
+            return
+
         if method == "POST" and path == "/hooks/openclaw/ingress":
             if not self._authorize_openclaw_hook(handler):
                 return

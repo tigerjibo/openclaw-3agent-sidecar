@@ -24,7 +24,19 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceRunner:
-    """Managed local service entrypoint with lifecycle and graceful shutdown."""
+    """Managed local service entrypoint with lifecycle and graceful shutdown.
+
+    Persistence boundary
+    --------------------
+    Only *task* and *task_event* data live in SQLite and survive restarts.
+    The following in-memory state is intentionally ephemeral and rebuilt
+    automatically after a restart:
+    - ``_maintenance_history`` / ``_last_maintenance_summary`` — populated
+      after the first maintenance cycle.
+    - ``_integration_probe_cache`` / ``_integration_probe_history`` — rebuilt
+      on the next probe interval.
+    - ``_hook_registration_state`` — re-attempted during ``start()``.
+    """
 
     def __init__(self, *, config: dict | None = None) -> None:
         self._config = load_config()

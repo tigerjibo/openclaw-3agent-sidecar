@@ -98,6 +98,7 @@ class TaskKernelApiApp:
             created_by=request_body.get("created_by"),
         )
         create_task(self.conn, task)
+        self.conn.commit()
         return {"status": 201, "body": {"ok": True, "data": get_task_by_id(self.conn, task.task_id)}}
 
     def _transition_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:

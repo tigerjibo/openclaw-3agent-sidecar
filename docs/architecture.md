@@ -57,6 +57,22 @@ For product communication, the same 3-agent runtime can be framed as a **Ming-st
 
 This framing must remain outside the runtime source of truth. Code, APIs, tests, and storage continue to use canonical role ids: `coordinator`, `executor`, and `reviewer`.
 
+## Persistence boundary
+
+Only **task** and **task_event** rows in SQLite survive restarts. All other `ServiceRunner` state is ephemeral and rebuilt automatically:
+
+| State | Persisted? | Recovery strategy |
+|---|---|---|
+| `tasks` table | Yes | Survives restart as-is |
+| `task_events` table | Yes | Survives restart as-is |
+| `dispatch_status=running` tasks | Yes (in DB) | `TaskRecovery.recover_inflight_dispatches()` resets to idle |
+| `_maintenance_history` | No | Rebuilt after first maintenance cycle |
+| `_integration_probe_cache` | No | Rebuilt on next probe interval |
+| `_hook_registration_state` | No | Re-attempted during `start()` |
+| `lifecycle_state` | No | Set to "ready" during `start()` |
+
+This boundary is intentional: operational telemetry is cheap to re-derive, while task truth must be durable.
+
 ## Operations handoff
 
 For day-2 operations, see `docs/operations-runbook.md`.

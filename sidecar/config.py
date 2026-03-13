@@ -6,19 +6,21 @@ from typing import Any
 from .contracts import CONFIG_KEYS
 
 _DEFAULTS: dict[str, Any] = {
+    # Core (always needed)
     "host": "127.0.0.1",
     "port": 9600,
-    "db_path": ":memory:",
+    "db_path": ":memory:",  # Override with OPENCLAW_DB_PATH for persistence
     "maintenance_interval_sec": 5.0,
     "executing_timeout_sec": 3600,
     "reviewing_timeout_sec": 1800,
     "blocked_alert_after_sec": 600,
     "default_runtime_mode": "legacy_single",
+    "log_level": "INFO",
+    # Integration (only for OpenClaw integration mode)
     "runtime_invoke_url": "",
     "integration_probe_ttl_sec": 30.0,
     "hook_registration_retry_sec": 300.0,
     "hook_registration_failure_alert_after": 3,
-    "log_level": "INFO",
     "gateway_base_url": "",
     "hooks_token": "",
     "public_base_url": "",

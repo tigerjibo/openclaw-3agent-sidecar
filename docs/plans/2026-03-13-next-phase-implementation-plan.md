@@ -32,15 +32,18 @@
 ### 下一阶段要做
 
 1. **持久化并发防御与运行收口**
+   - 前置落实 SQLite WAL + busy_timeout（Task 0，基础设施级，5 分钟搞定）
    - 验证重启后 maintenance / recovery / dispatch 的一致性
-   - 落实 SQLite 的并发安全模式（WAL）与任务数据 TTL 自动清理，防止 DB 膨胀拖垮性能
+   - 梳理 Result / Dispatch 的事务原子性边界，减少半写状态暴露窗口
    - 补充真实 restart / stale / blocked / timeout 回归覆盖
 
 2. **真实 OpenClaw 接线闭环与链路追踪**
    - 让 runtime bridge / gateway hooks 从 skeleton 走向实际可配置接线
    - 固化 Trace ID 的贯穿机制（ingress -> invoke -> hook），使得 Sidecar 与 OpenClaw 间不再是可观测性黑洞
    - 定义人工干预（HITL）API Contract（如 `/runtime/unblock`），以解除 blocked 异常
-   - 为 Result Hook 回写引入基于版本号的“乐观锁”，彻底切断网络重试引起的乱序流转与并发脏写
+   - 验证现有 `version` 乐观锁是否覆盖所有 Result Hook 回写路径（注意：代码已有 version 字段与校验，不需要重新实现）
+
+> **评审纠偏**：原方案 Task 8 提出"引入 task_version 乐观锁"，但 `storage.py` schema 已有 `version INTEGER NOT NULL DEFAULT 1`，`result.py` 的每次状态流转均已在调用 `expected_version` 校验。因此 Task 8 应降级为**验证覆盖度**而非重新实现。
 
 3. **生产化运行硬化**
    - 收口配置、日志、启动方式、部署说明
@@ -57,6 +60,22 @@
 ---
 
 ## 工作流分解
+
+## Workstream 0：前置基础设施（立即执行）
+
+### Task 0：SQLite WAL 模式与 busy_timeout
+
+**Files:**
+- Modify: `sidecar/storage.py`
+- Create: `tests/test_storage_wal.py`
+
+1. 在 `init_db()` 中加入 `PRAGMA journal_mode=WAL` 和 `PRAGMA busy_timeout=5000`。
+2. 写一个测试验证：持久化 DB 模式下，WAL 已开启且 busy_timeout 已生效。
+3. 这是最高优先级的前置改动——所有后续并发测试都依赖 WAL 正常工作。
+
+> **为什么独立出来**：WAL 是基础设施层的一行 PRAGMA，不应与 TTL 归档（产品策略）绑定。TTL 归档移至 Workstream 3。
+
+---
 
 ## Workstream 1：持久化后的 runtime 一致性补强
 
@@ -102,16 +121,21 @@
 2. 补“重复 start/stop、异常 stop、主线程/非主线程”相关测试。
 3. 保证 runner 生命周期行为稳定可预测。
 
-### Task 4：落实 SQLite 并发安全与数据 TTL
+### Task 4：梳理 Result / Dispatch 事务原子性边界
 
 **Files:**
-- Modify: `sidecar/storage.py`
-- Modify: `sidecar/service_runner.py`
-- If needed: `tests/test_service_runner_persistence.py`
+- Modify: `sidecar/adapters/result.py`
+- Modify: `sidecar/runtime/dispatcher.py`
+- Modify: `sidecar/models.py`
+- If needed: `tests/test_result_adapter.py`
+- If needed: `tests/test_dispatcher.py`
 
-1. **写写并防锁**：修改 `init_db` 与连接池逻辑，强制开启 `PRAGMA journal_mode=WAL` 与线程安全访问机制，防止死锁（database is locked）。
-2. **容量防爆**：在 `run_maintenance_cycle` 中引入归档清理动作（例如清理超 30 天的已完结任务与事件归档）。
-3. 编写并发执行与 TTL 归档的验证单测。
+> **评审发现的关键风险**：当前 `apply_result()` 一次回写涉及 4-6 次独立 `conn.commit()`。如果中间任何一步崩了（进程被 kill、磁盘满、OOM），任务将处于半写状态——事件写了但状态没推进，或者状态推进了但 dispatch 标记没清除。这比乐观锁问题更严重。
+
+1. 梳理 `apply_result` 中每一次 `commit()` 的位置和意图。
+2. 评估是否可以将"事件写入 + 状态流转 + dispatch 标记清除"合并为单个 SQLite 事务。
+3. 对 `dispatch_task` 做同样的梳理。
+4. 补充"半写恢复"测试：模拟中途崩溃后重启，验证 recovery 能正确收口。
 
 ---
 
@@ -122,16 +146,20 @@
 **Files:**
 - Modify: `docs/adapter-contract.md`
 - Modify: `docs/architecture.md`
-- If needed: `sidecar/contracts.py`
+- Modify: `sidecar/contracts.py`
+- Modify: `sidecar/adapters/ingress.py`
+- Modify: `sidecar/adapters/agent_invoke.py`
+- Modify: `sidecar/http_service.py`
 
 1. 明确三类 contract：
    - ingress payload
    - runtime invoke payload
    - result callback payload
 2. 标明必填字段、鉴权头、错误码语义，以及**必须包含的系统级 `trace_id` 用于全链路追踪隔离。**
-3. 补充定义 **人工干预 (Human-In-The-Loop) /runtime/intervention (或 unblock) 的 API Contract**，允许在 `blocked` 状态下通过补充信息强制恢复执行。
+3. 在 ingress 中自动生成或传入 `trace_id`，在 invoke payload 中携带，在 result callback 中要求原样返回，关键日志点强制打印。
+4. 补充定义 **人工干预 (HITL) `/runtime/unblock` HTTP 端点**——`api.py` 已有 `/tasks/{id}/unblock` 路由和 `clear_task_blocked()` 实现，但 `http_service.py` 尚未暴露到 HTTP 控制面。补上这个端点并加测试。
 
-### Task 5：增强 gateway/runtime 适配层错误处理
+### Task 6：增强 gateway/runtime 适配层错误处理
 
 **Files:**
 - Modify: `sidecar/adapters/openclaw_runtime.py`
@@ -147,6 +175,8 @@
 
 ### Task 7：打通真实 invoke/result 最小闭环
 
+> **注意**：Task 7 依赖 Task 4（事务原子性）和 Task 5（Trace ID）的完成。
+
 **Files:**
 - Modify: `sidecar/runtime/dispatcher.py`
 - Modify: `sidecar/http_service.py`
@@ -161,22 +191,26 @@
    - reviewer 结果晚到/重复到达
 3. 至少做出“单 task 在真实 HTTP 接线下能完成一次 coordinator -> executor -> reviewer”的最小闭环验证模型。
 
-### Task 8：为 Result Hook 引入乐观锁并发防御
+### Task 8：验证现有 version 乐观锁覆盖度（降级为验证任务）
 
 **Files:**
-- Modify: `sidecar/storage.py` 或 `sidecar/models.py`
-- Modify: `sidecar/adapters/result.py`
-- Create/Modify: `tests/test_result_optimistic_locking.py`
+- Modify: `tests/test_result_adapter.py`（补充覆盖度测试）
+- If needed: `sidecar/adapters/result.py`
 
-1. **状态机代数号**：在 `tasks` 表级别引入 `task_version` 字段，并在分发时 (Dispatch) 更新它。
-2. **防脑裂拦截**：`Result hook` 回写时，必须执行类似 `UPDATE tasks ... WHERE task_id = ? AND task_version = ?` 的前置校验。
-3. 如果 `version` 匹配失败，即认为属于“网络重发导致的历史脏单”或“上游同一时刻发多次”，直接短路防御并记录幂等，避免状态机走入死胡同。
+> **评审纠偏**：原方案建议"引入 task_version 字段"，但 `storage.py` 的 tasks schema **已有** `version INTEGER NOT NULL DEFAULT 1`，`result.py` 中 `_apply_coordinator_success` / `_apply_executor_success` / `_apply_reviewer_success` **已经在每次状态流转时传入 `expected_version`**。因此本 Task 降级为验证 + 补漏。
+
+1. 验证 `block` 和 `failed` 分支是否也经过了 version 校验（当前代码中 block 路径绕过了 `expected_version` 检查，需要确认是否为有意为之）。
+2. 验证 `dispatch_task` 清除 dispatch 状态时是否校验了 version。
+3. 补充一个"并发重复 Result 回写"测试：同一 invoke_id 在毫秒级连发两次，验证幂等拦截生效。
+4. 如果发现覆盖缺口，补最小修复。
 
 ---
 
 ## Workstream 3：部署与运维硬化
 
-### Task 9：把部署样例升级为试运行手册
+### Task 9：把部署样例升级为试运行手册（含 TTL 归档策略）
+
+> **TTL 归档从原 Task 4 拆出至此**：数据生命周期管理属于运维策略，不应与 WAL 基础设施绑定。
 
 **Files:**
 - Modify: `deploy/README.md`
@@ -190,8 +224,7 @@
    - 健康检查
    - 常见失败排查
 2. 明确 Linux/Windows 最小落地路径。
-3. 补一段“本地试运行 smoke 流程”。
-
+3. 补一段“本地试运行 smoke 流程”。4. 补充数据生命周期约定：已完结任务和事件的归档/清理策略（如 30 天 TTL），作为运维 SOP 的一部分记录。
 ### Task 10：补 smoke 验证脚本或测试入口
 
 **Files:**
@@ -229,18 +262,24 @@
 
 建议按下面顺序推进，而不是同时铺开：
 
+0. **SQLite WAL + busy_timeout** (前置, 5 分钟)
 1. **restart consistency 测试矩阵**
-2. **SQLite WAL 与防爆内存 TTL 自动清理** (Critical)
-3. **真实 OpenClaw contract 固化 (合 Trace ID 与 HITL)** 
-4. **gateway/runtime 适配层错误处理增强**
-5. **Result Hook 结合乐观锁的真实 invoke/result 闭环** (Critical)
-6. **部署文档与 smoke 流程硬化**
+2. **运行态持久化边界梳理**
+3. **shutdown/startup 收口语义**
+4. **Result / Dispatch 事务原子性梳理** (Critical)
+5. **Trace ID 贯穿 + HITL unblock 端点 + contract 固化**
+6. **gateway/runtime 适配层错误处理增强**
+7. **真实 invoke/result 最小闭环**
+8. **version 乐观锁覆盖度验证**（验证 + 补漏，非重新实现）
+9. **部署/运维硬化 + TTL 归档策略**
+10. **smoke 验证 + 配置/日志约束**
 
 这样可以避免：
 
-- 跑在线上时突然爆出 `Database is locked`
-- Webhook 网络抖动引发状态机死胡同
-- 出了问题全链路像黑洞一样抓瞎
+- 跑在线上时突然爆出 `Database is locked`（Task 0 前置解决）
+- Result 半写导致状态机残留不一致态（Task 4 解决）
+- Webhook 重复到达导致假脑裂（Task 8 验证现有防线）
+- 出了问题全链路像黑洞一样抓瞎（Task 5 Trace ID 解决）
 
 ---
 
@@ -248,11 +287,15 @@
 
 下一阶段完成后，应满足：
 
-1. `master` 分支下，runner 在持久化 DB 模式下可重启并正确恢复任务推进
-2. sidecar 与 OpenClaw 的 ingress / invoke / result contract 有明确文档与测试覆盖
-3. runtime submission、hook callback、probe failure 都有稳定错误语义
-4. 运维同学可以按文档完成最小试运行与排障
-5. 以下验证命令稳定通过：
+1. `master` 分支下，SQLite 持久化 DB 使用 WAL 模式，runner 可重启并正确恢复任务推进
+2. Result / Dispatch 的关键写入路径在单个 SQLite 事务内完成，不存在半写暴露窗口
+3. 全链路 Trace ID 从 ingress 贯穿到 invoke 和 result callback，关键日志可按 trace_id 检索
+4. `/runtime/unblock` 端点可通过 HTTP 解除 blocked 任务
+5. sidecar 与 OpenClaw 的 ingress / invoke / result contract 有明确文档与测试覆盖
+6. runtime submission、hook callback、probe failure 都有稳定错误语义
+7. 现有 version 乐观锁覆盖所有 Result 回写路径（含 block/failed 分支）
+8. 运维同学可以按文档完成最小试运行与排障
+9. 以下验证命令稳定通过：
    - `pytest tests -q`
    - `python -m compileall sidecar`
 
@@ -261,3 +304,15 @@
 ## 建议接手提示
 
 > 下一阶段不要再把重点放在“角色包装”或“新故事文案”上，而应围绕 `service_runner` 的恢复一致性、`openclaw_runtime` 的真实接线能力、以及部署/运维最小可落地性来推进。先用测试把 restart + invoke/result contract 打稳，再继续向试运行靠拢。
+---
+
+## 评审修订记录
+
+本计划经过同行评审后做了以下关键修订：
+
+1. **新增 Task 0**：SQLite WAL + busy_timeout 作为前置基础设施独立出来，不与 TTL 归档绑定
+2. **新增 Task 4**：Result / Dispatch 事务原子性梳理——评审发现 `apply_result()` 一次回写涉及 4-6 次独立 commit，存在半写状态风险，比乐观锁问题更严重
+3. **Task 8 降级**：从"实现乐观锁"改为"验证现有 version 校验覆盖度"——代码已有 version 字段和 expected_version 校验
+4. **TTL 归档拆出**：从原 Task 4 移至 Workstream 3（Task 9），作为运维策略而非基础设施
+5. **修复编号**：消除原计划中重复的 Task 5，补回 Task 6
+6. **HITL 端点具体化**：从"定义 API Contract"改为"在 http_service.py 暴露 /runtime/unblock 端点"——api.py 已有实现但未暴露到 HTTP 层

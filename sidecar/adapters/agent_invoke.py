@@ -28,11 +28,13 @@ class AgentInvokeAdapter:
 
         next_attempt = int(task.get("dispatch_attempts") or 0) + 1
         invoke_id = f"inv:{task_id}:{role}:v{task['version']}:a{next_attempt}"
+        trace_id = self._extract_trace_id(task)
         return {
             "invoke_id": invoke_id,
             "task_id": task_id,
             "role": role,
             "agent_id": role,
+            "trace_id": trace_id,
             "session_key": f"task:{task_id}:{role}",
             "goal": _ROLE_GOALS[role],
             "input": {
@@ -63,3 +65,16 @@ class AgentInvokeAdapter:
             return json.loads(value)
         except json.JSONDecodeError:
             return value
+
+    def _extract_trace_id(self, task: dict[str, Any]) -> str:
+        """Extract trace_id from task metadata_json, or fall back to task_id."""
+        raw = task.get("metadata_json")
+        if raw and isinstance(raw, str):
+            try:
+                meta = json.loads(raw)
+                tid = meta.get("trace_id")
+                if tid:
+                    return str(tid)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        return str(task.get("task_id") or "")
