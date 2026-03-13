@@ -96,6 +96,18 @@ class ServiceRunner:
             "last_cycle": last_cycle,
         }
 
+    def ops_summary_payload(self, *, now: datetime | None = None) -> dict[str, Any]:
+        health = self.health_payload(now=now)
+        readiness = self.readiness_payload()
+        maintenance = self.maintenance_payload()
+        return {
+            "status": str(health["status"]),
+            "lifecycle_state": self.lifecycle_state,
+            "health": health,
+            "readiness": readiness,
+            "maintenance": maintenance,
+        }
+
     def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
         agent_health = self._agent_health.snapshot(now=now)
         maintenance = self.maintenance_payload()
