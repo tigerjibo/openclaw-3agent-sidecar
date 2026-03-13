@@ -7,6 +7,8 @@ import threading
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from .adapters.ingress import IngressAdapter
+from .adapters.result import ResultAdapter
 from .api import TaskKernelApiApp
 from .briefing import build_brief
 from .config import load_config
@@ -92,6 +94,30 @@ class LocalTaskKernelHttpService:
             runner = getattr(self, "service_runner", None)
             payload = runner.maintenance_payload() if runner is not None else {"status": "ok", "maintenance_enabled": False, "interval_sec": 0, "last_cycle": None}
             self._write_json(handler, 200, {"status": "ok", "maintenance": payload})
+            return
+
+        if method == "POST" and path == "/runtime/ingress":
+            payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="runtime")
+            self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
+            return
+
+        if method == "POST" and path == "/runtime/result":
+            payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="runtime")
+            self._write_json(handler, 200, {"status": "ok", "data": payload})
+            return
+
+        if method == "POST" and path == "/hooks/openclaw/ingress":
+            if not self._authorize_openclaw_hook(handler):
+                return
+            payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="hook")
+            self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
+            return
+
+        if method == "POST" and path == "/hooks/openclaw/result":
+            if not self._authorize_openclaw_hook(handler):
+                return
+            payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="hook")
+            self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 
         if method == "GET" and path == "/exceptions":
@@ -186,6 +212,25 @@ class LocalTaskKernelHttpService:
         handler.send_header("Content-Length", str(len(payload)))
         handler.end_headers()
         handler.wfile.write(payload)
+
+    def _authorize_openclaw_hook(self, handler: BaseHTTPRequestHandler) -> bool:
+        cfg = load_config()
+        expected_token = str(cfg.get("hooks_token") or "").strip()
+        provided_token = str(handler.headers.get("X-OpenClaw-Hooks-Token") or "").strip()
+        if expected_token and provided_token == expected_token:
+            return True
+        self._write_json(
+            handler,
+            401,
+            {
+                "ok": False,
+                "error": True,
+                "code": "unauthorized",
+                "message": "invalid or missing hooks token",
+                "details": {},
+            },
+        )
+        return False
 
     def _require_conn(self):
         conn = self.app.conn

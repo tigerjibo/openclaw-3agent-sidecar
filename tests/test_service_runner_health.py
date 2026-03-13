@@ -95,3 +95,135 @@ def test_healthz_endpoint_returns_agent_health_snapshot() -> None:
         assert body["maintenance"]["last_cycle"] is not None
     finally:
         runner.stop()
+
+
+def test_service_runner_health_payload_degrades_after_repeated_hook_registration_failures() -> None:
+    class FailingGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            raise RuntimeError("gateway offline")
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "Unable to reach OpenClaw gateway."}
+
+    gateway = FailingGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 1,
+            "hook_registration_failure_alert_after": 2,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        runner.run_maintenance_cycle(now=retry_time)
+        payload = runner.health_payload(now=retry_time)
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 2
+    assert payload["status"] == "degraded"
+    assert payload["integration"]["gateway"]["hook_registration"]["status"] == "register_failed"
+    assert payload["integration"]["gateway"]["hook_registration"]["attempt_count"] == 2
+
+
+def test_service_runner_readiness_blocks_after_repeated_hook_registration_failures() -> None:
+    class FailingGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            raise RuntimeError("gateway offline")
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "Unable to reach OpenClaw gateway."}
+
+    gateway = FailingGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 1,
+            "hook_registration_failure_alert_after": 2,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        runner.run_maintenance_cycle(now=retry_time)
+        payload = runner.readiness_payload()
+    finally:
+        runner.stop()
+
+    assert gateway.calls == 2
+    assert payload == {
+        "status": "blocked",
+        "reason": "integration=gateway_hook_registration",
+    }
+
+
+def test_readyz_endpoint_blocks_after_repeated_hook_registration_failures() -> None:
+    class FailingGatewayClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def register_hooks(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls += 1
+            raise RuntimeError("gateway offline")
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "Unable to reach OpenClaw gateway."}
+
+    gateway = FailingGatewayClient()
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "gateway_base_url": "http://127.0.0.1:18789",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com/kernel",
+            "hook_registration_retry_sec": 1,
+            "hook_registration_failure_alert_after": 2,
+        }
+    )
+    runner._gateway_client = gateway  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        first = runner.integration_payload(now=datetime.utcnow())
+        retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
+        runner.run_maintenance_cycle(now=retry_time)
+        assert runner.http_service.base_url is not None
+        with urlopen(f"{runner.http_service.base_url}/readyz") as response:
+            body = json.loads(response.read().decode("utf-8"))
+    finally:
+        runner.stop()
+
+    assert body == {
+        "status": "blocked",
+        "reason": "integration=gateway_hook_registration",
+    }

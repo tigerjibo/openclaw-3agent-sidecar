@@ -149,6 +149,13 @@
 - 补 metrics / alert / role health
 - 完成部署脚手架与运行文档
 
+当前已落地的阶段三基础包括：
+
+- integration probe 的结构化观测
+- gateway hook 自动注册与 maintenance 重试
+- hook 注册失败次数阈值触发的 health / readiness 联动
+- 初版 `docs/operations-runbook.md`
+
 ## 7. 优先级路线图
 
 ### P0（建议立即做）
@@ -193,3 +200,5 @@
 ## 10. 当前阶段结论
 
 > 当前 `openclaw-3agent-sidecar` 已经完成了“独立仓初始化 + task kernel + adapter 最小闭环 + recovery / health 在内的 runtime 基础闭环”，下一阶段的核心任务不是重写角色故事，而是把持久化、自动恢复调度和真实 OpenClaw 接线做实，同时在对外层使用“明制小内阁”统一传播口径。
+
+补充说明：当前仓库也已经具备第一批面向真实上游接线的运维语义，包括 hook registration 状态、自动重试窗口、连续失败阈值告警，以及 readiness 阻断能力。

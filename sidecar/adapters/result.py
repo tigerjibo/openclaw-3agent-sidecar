@@ -12,7 +12,7 @@ class ResultAdapter:
     def __init__(self, app: TaskKernelApiApp) -> None:
         self.app = app
 
-    def apply_result(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def apply_result(self, payload: dict[str, Any], *, channel: str = "local") -> dict[str, Any]:
         conn = self._conn()
         invoke_id = self._require_str(payload, "invoke_id")
         task_id = self._require_str(payload, "task_id")
@@ -40,7 +40,7 @@ class ResultAdapter:
             event_type="task.result_received",
             actor=role,
             action=status,
-            summary=f"{role} result received: {status}",
+            summary=f"{role} result received via {channel}: {status}",
             idempotency_key=invoke_id,
         )
 

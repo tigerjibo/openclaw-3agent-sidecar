@@ -14,10 +14,22 @@ _DEFAULTS: dict[str, Any] = {
     "reviewing_timeout_sec": 1800,
     "blocked_alert_after_sec": 600,
     "default_runtime_mode": "legacy_single",
+    "runtime_invoke_url": "",
+    "integration_probe_ttl_sec": 30.0,
+    "hook_registration_retry_sec": 300.0,
+    "hook_registration_failure_alert_after": 3,
+    "log_level": "INFO",
+    "gateway_base_url": "",
+    "hooks_token": "",
+    "public_base_url": "",
 }
 
-_INT_KEYS = {"port", "executing_timeout_sec", "reviewing_timeout_sec", "blocked_alert_after_sec"}
-_FLOAT_KEYS = {"maintenance_interval_sec"}
+_INT_KEYS = {"port", "executing_timeout_sec", "reviewing_timeout_sec", "blocked_alert_after_sec", "hook_registration_failure_alert_after"}
+_FLOAT_KEYS = {"maintenance_interval_sec", "integration_probe_ttl_sec", "hook_registration_retry_sec"}
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "db_path": ("SIDECAR_DB_PATH",),
+    "log_level": ("SIDECAR_LOG_LEVEL",),
+}
 
 
 def load_config() -> dict[str, Any]:
@@ -26,6 +38,11 @@ def load_config() -> dict[str, Any]:
     for key in CONFIG_KEYS:
         env_name = f"OPENCLAW_{key.upper()}"
         env_val = os.environ.get(env_name)
+        if env_val is None:
+            for alias in _ALIASES.get(key, ()):
+                env_val = os.environ.get(alias)
+                if env_val is not None:
+                    break
         if env_val is not None:
             if key in _INT_KEYS:
                 try:

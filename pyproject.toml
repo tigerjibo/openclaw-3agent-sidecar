@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
 
+[project.scripts]
+openclaw-sidecar = "sidecar.__main__:main"
+
 [tool.setuptools]
 include-package-data = true
 

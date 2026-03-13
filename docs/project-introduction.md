@@ -148,6 +148,14 @@
 - 现有最小 adapter/runtime 闭环是可运行的
 - 不是只有文档，没有代码
 
+同时也已经具备一批面向真实接线与运维的能力：
+
+- OpenClaw hook 自动注册
+- maintenance 驱动的注册重试
+- hook 注册失败限频与下次重试时间
+- 连续失败达到阈值时 health 降级与 readiness 阻断
+- 面向值班场景的运维 runbook
+
 ## 推荐如何继续开发
 
 如果要继续推进，推荐优先顺序是：
@@ -157,6 +165,8 @@
 3. 与真实 OpenClaw runtime 的 invoke/result 接线
 4. production deployment 与运维面板
 5. 轻量演示面与活动流可观测增强
+
+如果是接手值班或上线准备，而不是继续开发，请先阅读 `docs/operations-runbook.md`。
 
 ## 一句话总结
 

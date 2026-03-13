@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..adapters.agent_invoke import AgentInvokeAdapter
+from ..adapters.openclaw_runtime import OpenClawRuntimeBridge
 from ..api import TaskKernelApiApp
 from ..events import append_event
 from ..models import get_task_by_id, update_task_fields
@@ -11,9 +12,10 @@ _TERMINAL_STATES = {"done", "cancelled"}
 
 
 class TaskDispatcher:
-    def __init__(self, app: TaskKernelApiApp) -> None:
+    def __init__(self, app: TaskKernelApiApp, *, runtime_bridge: OpenClawRuntimeBridge | None = None) -> None:
         self.app = app
         self.invoke_adapter = AgentInvokeAdapter(app)
+        self.runtime_bridge = runtime_bridge
 
     def dispatch_task(self, task_id: str, *, force: bool = False) -> dict[str, Any]:
         task = get_task_by_id(self.app.conn, task_id)
@@ -32,6 +34,7 @@ class TaskDispatcher:
             return {"dispatched": False, "reason": "already_running", "task_id": task_id}
 
         invoke_payload = self.invoke_adapter.build_invoke(task_id, role=role)
+        runtime_submission = self.runtime_bridge.submit_invoke(invoke_payload) if self.runtime_bridge is not None else None
         attempts = int(task.get("dispatch_attempts") or 0) + 1
         update_task_fields(
             self.app.conn,
@@ -57,7 +60,12 @@ class TaskDispatcher:
             idempotency_key=f"dispatch:{invoke_payload['invoke_id']}",
         )
         self.app.conn.commit()
-        return {"dispatched": True, "task_id": task_id, "invoke_payload": invoke_payload}
+        return {
+            "dispatched": True,
+            "task_id": task_id,
+            "invoke_payload": invoke_payload,
+            "runtime_submission": runtime_submission,
+        }
 
     def _now_expr_value(self) -> None:
         return None

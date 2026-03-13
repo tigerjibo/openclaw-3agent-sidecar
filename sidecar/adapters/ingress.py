@@ -14,7 +14,7 @@ class IngressAdapter:
     def __init__(self, app: TaskKernelApiApp) -> None:
         self.app = app
 
-    def ingest(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def ingest(self, payload: dict[str, Any], *, channel: str = "local") -> dict[str, Any]:
         request_id = self._require_str(payload, "request_id")
         entrypoint = self._require_str(payload, "entrypoint")
         if entrypoint != "institutional_task":
@@ -55,7 +55,7 @@ class IngressAdapter:
         )
         self.app.conn.execute(
             "UPDATE tasks SET last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?",
-            (f"ingress accepted: {title}", task_id),
+            (f"ingress accepted via {channel}: {title}", task_id),
         )
         append_event(
             self.app.conn,
@@ -63,7 +63,7 @@ class IngressAdapter:
             event_type=contracts.EVENT_TASK_CREATED,
             actor=source,
             action="ingress",
-            summary=f"ingress accepted: {title}",
+            summary=f"ingress accepted via {channel}: {title}",
             idempotency_key=request_id,
         )
         self.app.conn.commit()

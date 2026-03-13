@@ -86,3 +86,6 @@ def test_end_to_end_minimal_adapter_loop_reaches_done() -> None:
     assert task["current_role"] is None
     assert task["review_decision"] == "approve"
     assert len(events) >= 6
+    assert any(event["summary"] == "ingress accepted via local: 完成最小 sidecar 闭环" for event in events)
+    assert any(event["summary"] == "coordinator result received via local: succeeded" for event in events)
+    assert any(event["summary"] == "reviewer result received via local: succeeded" for event in events)
