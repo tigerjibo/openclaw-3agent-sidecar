@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timedelta
+from urllib.request import urlopen
 
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.config import load_config
@@ -181,3 +183,56 @@ def test_service_runner_maintenance_cycle_escalates_blocked_task_without_dispatc
     assert task is not None
     assert task["blocked"] == 1
     assert task["dispatch_status"] == "idle"
+
+
+def test_service_runner_maintenance_payload_reports_last_cycle_summary() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+        }
+    )
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-maintenance-payload")
+
+        before = runner.maintenance_payload()
+        summary = runner.run_maintenance_cycle(now=datetime.utcnow())
+        after = runner.maintenance_payload()
+    finally:
+        runner.stop()
+
+    assert before["last_cycle"] is None
+    assert after["interval_sec"] == 0
+    assert after["last_cycle"] is not None
+    assert after["last_cycle"]["dispatched_count"] == summary["dispatched_count"]
+    assert task_id in after["last_cycle"]["dispatched_task_ids"]
+
+
+def test_runtime_maintenance_endpoint_returns_last_cycle_summary() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+        }
+    )
+
+    try:
+        runner.start()
+        _create_task(runner, request_id="req-service-runner-maintenance-endpoint")
+        runner.run_maintenance_cycle(now=datetime.utcnow())
+        assert runner.http_service.base_url is not None
+
+        with urlopen(f"{runner.http_service.base_url}/runtime/maintenance") as response:
+            body = json.loads(response.read().decode("utf-8"))
+    finally:
+        runner.stop()
+
+    assert body["status"] == "ok"
+    assert body["maintenance"]["last_cycle"] is not None
+    assert body["maintenance"]["last_cycle"]["dispatched_count"] >= 1
