@@ -19,6 +19,7 @@ from .runtime.recovery import TaskRecovery
 from .runtime.scheduler import TaskScheduler
 from .runtime_mode import RuntimeModeController
 from .storage import connect, init_db
+from .time_utils import ensure_utc, parse_utc_datetime, utc_isoformat, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class ServiceRunner:
             self.install_signal_handlers()
             self._signal_handlers_installed = True
         self._http.start()
-        self._ensure_gateway_hooks_registered(now=datetime.utcnow())
+        self._ensure_gateway_hooks_registered(now=utc_now())
         self.lifecycle_state = "ready"
         self._start_maintenance_loop()
         logger.info("Service started: %s mode=%s", self._http.base_url, self._config["default_runtime_mode"])
@@ -95,7 +96,7 @@ class ServiceRunner:
         logger.info("Service stopped.")
 
     def run_maintenance_cycle(self, *, now: datetime | None = None) -> dict[str, Any]:
-        cycle_time = now or datetime.utcnow()
+        cycle_time = ensure_utc(now) if now is not None else utc_now()
         anomalies_before = self._anomalies_payload(now=cycle_time)
         recovery_summary = self._recovery.run_once(now=cycle_time)
         dispatched = self._scheduler.dispatch_ready_tasks(limit=10)
@@ -112,7 +113,7 @@ class ServiceRunner:
         task_ids_before = self._ordered_task_ids(anomalies_before.get("items") or [])
         task_ids_after = self._ordered_task_ids(anomalies_after.get("items") or [])
         summary = {
-            "cycle_started_at": cycle_time.isoformat(),
+            "cycle_started_at": utc_isoformat(cycle_time),
             "recovery": recovery_summary,
             "dispatched_count": len(dispatched),
             "dispatched_task_ids": [str(item["task_id"]) for item in dispatched],
@@ -223,6 +224,7 @@ class ServiceRunner:
         }
 
     def _ensure_gateway_hooks_registered(self, *, now: datetime) -> None:
+        now = ensure_utc(now)
         gateway_base_url_configured = bool(str(self._config.get("gateway_base_url") or "").strip())
         hooks_token_configured = bool(str(self._config.get("hooks_token") or "").strip())
         if self._gateway_client is None or not gateway_base_url_configured or not hooks_token_configured:
@@ -239,7 +241,7 @@ class ServiceRunner:
             return
 
         attempt_count = int((self._hook_registration_state or {}).get("attempt_count") or 0) + 1
-        attempt_time = now.isoformat()
+        attempt_time = utc_isoformat(now)
         retry_sec = float(self._config.get("hook_registration_retry_sec") or 0)
         ingress_url, result_url = self._hook_callback_urls(public_base_url)
         try:
@@ -252,7 +254,7 @@ class ServiceRunner:
             self._hook_registration_state = self._default_hook_registration_state(
                 status="register_failed",
                 last_attempt_at=attempt_time,
-                next_retry_at=(now + timedelta(seconds=retry_sec)).isoformat() if retry_sec > 0 else attempt_time,
+                next_retry_at=utc_isoformat(now + timedelta(seconds=retry_sec)) if retry_sec > 0 else attempt_time,
                 attempt_count=attempt_count,
                 public_base_url=public_base_url,
                 ingress_url=ingress_url,
@@ -264,9 +266,9 @@ class ServiceRunner:
         accepted = bool(response.get("accepted") or response.get("ok"))
         self._hook_registration_state = self._default_hook_registration_state(
             status="registered" if accepted else "register_rejected",
-            registered_at=now.isoformat() if accepted else None,
+            registered_at=utc_isoformat(now) if accepted else None,
             last_attempt_at=attempt_time,
-            next_retry_at=None if accepted else (now + timedelta(seconds=retry_sec)).isoformat() if retry_sec > 0 else attempt_time,
+            next_retry_at=None if accepted else utc_isoformat(now + timedelta(seconds=retry_sec)) if retry_sec > 0 else attempt_time,
             attempt_count=attempt_count,
             public_base_url=public_base_url,
             ingress_url=ingress_url,
@@ -325,15 +327,15 @@ class ServiceRunner:
         return "unknown"
 
     def _should_retry_hook_registration(self, *, now: datetime) -> bool:
+        now = ensure_utc(now)
         status = str((self._hook_registration_state or {}).get("status") or "")
         if status not in {"register_failed", "register_rejected"}:
             return False
         next_retry_at = str((self._hook_registration_state or {}).get("next_retry_at") or "").strip()
         if not next_retry_at:
             return True
-        try:
-            retry_at = datetime.fromisoformat(next_retry_at)
-        except ValueError:
+        retry_at = parse_utc_datetime(next_retry_at)
+        if retry_at is None:
             return True
         return now >= retry_at
 
@@ -354,7 +356,7 @@ class ServiceRunner:
         return self._refresh_integration_probe_cache(now=now)
 
     def _refresh_integration_probe_cache(self, *, now: datetime | None = None) -> dict[str, Any]:
-        probe_time = now or datetime.utcnow()
+        probe_time = ensure_utc(now) if now is not None else utc_now()
         gateway_probe = self._probe_component(
             configured=self._gateway_client is not None,
             component=self._gateway_client,
@@ -380,7 +382,7 @@ class ServiceRunner:
             status = "unreachable"
 
         history_item = {
-            "probed_at": probe_time.isoformat(),
+            "probed_at": utc_isoformat(probe_time),
             "status": status,
             "gateway": dict(gateway_probe),
             "runtime_invoke": dict(runtime_probe),
@@ -396,7 +398,7 @@ class ServiceRunner:
 
         payload = {
             "status": status,
-            "probed_at": probe_time.isoformat(),
+            "probed_at": utc_isoformat(probe_time),
             "failure_stats": overall_failure_stats,
             "gateway": gateway_probe,
             "runtime_invoke": runtime_probe,
@@ -413,7 +415,7 @@ class ServiceRunner:
         ttl_sec = float(self._config.get("integration_probe_ttl_sec") or 0)
         if ttl_sec <= 0:
             return True
-        check_time = now or datetime.utcnow()
+        check_time = ensure_utc(now) if now is not None else utc_now()
         return check_time - cached_at > timedelta(seconds=ttl_sec)
 
     def _probe_component(self, *, configured: bool, component: Any) -> dict[str, Any]:
@@ -502,7 +504,7 @@ class ServiceRunner:
             if self._maintenance_stop.wait(timeout=interval):
                 break
             try:
-                summary = self.run_maintenance_cycle(now=datetime.utcnow())
+                summary = self.run_maintenance_cycle(now=utc_now())
                 logger.debug("Maintenance cycle complete: %s", summary)
             except Exception:
                 logger.exception("Maintenance cycle failed")

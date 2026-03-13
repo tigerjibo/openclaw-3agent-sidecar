@@ -9,6 +9,7 @@ from sidecar.adapters.ingress import IngressAdapter
 from sidecar.config import load_config
 from sidecar.models import get_task_by_id, update_task_fields
 from sidecar.service_runner import ServiceRunner
+from sidecar.time_utils import utc_now
 
 
 def _create_task(runner: ServiceRunner, request_id: str) -> str:
@@ -69,10 +70,10 @@ def test_service_runner_run_maintenance_cycle_recovers_timeout_and_dispatches_re
             current_role="executor",
             dispatch_status="running",
             dispatch_role="executor",
-            dispatch_started_at=(datetime.utcnow() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+            dispatch_started_at=(utc_now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        summary = runner.run_maintenance_cycle(now=datetime.utcnow())
+        summary = runner.run_maintenance_cycle(now=utc_now())
         ready_task = get_task_by_id(conn, ready_task_id)
         stale_task = get_task_by_id(conn, stale_task_id)
     finally:
@@ -134,7 +135,7 @@ def test_service_runner_maintenance_cycle_recovers_persisted_inflight_task_after
     try:
         first_runner.start()
         task_id = _create_task(first_runner, request_id="req-service-runner-restart-inflight")
-        summary_before_stop = first_runner.run_maintenance_cycle(now=datetime.utcnow())
+        summary_before_stop = first_runner.run_maintenance_cycle(now=utc_now())
         assert task_id in summary_before_stop["dispatched_task_ids"]
     finally:
         first_runner.stop()
@@ -144,7 +145,7 @@ def test_service_runner_maintenance_cycle_recovers_persisted_inflight_task_after
     assert conn is not None
     try:
         second_runner.start()
-        summary_after_restart = second_runner.run_maintenance_cycle(now=datetime.utcnow())
+        summary_after_restart = second_runner.run_maintenance_cycle(now=utc_now())
         task = get_task_by_id(conn, task_id)
     finally:
         second_runner.stop()
@@ -178,10 +179,10 @@ def test_service_runner_maintenance_cycle_escalates_blocked_task_without_dispatc
             task_id,
             blocked=1,
             block_reason="waiting external dependency",
-            block_since=(datetime.utcnow() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+            block_since=(utc_now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        summary = runner.run_maintenance_cycle(now=datetime.utcnow())
+        summary = runner.run_maintenance_cycle(now=utc_now())
         task = get_task_by_id(conn, task_id)
     finally:
         runner.stop()
@@ -208,7 +209,7 @@ def test_service_runner_maintenance_payload_reports_last_cycle_summary() -> None
         task_id = _create_task(runner, request_id="req-service-runner-maintenance-payload")
 
         before = runner.maintenance_payload()
-        summary = runner.run_maintenance_cycle(now=datetime.utcnow())
+        summary = runner.run_maintenance_cycle(now=utc_now())
         after = runner.maintenance_payload()
     finally:
         runner.stop()
@@ -235,7 +236,7 @@ def test_runtime_maintenance_endpoint_returns_last_cycle_summary() -> None:
     try:
         runner.start()
         _create_task(runner, request_id="req-service-runner-maintenance-endpoint")
-        runner.run_maintenance_cycle(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
         assert runner.http_service.base_url is not None
 
         with urlopen(f"{runner.http_service.base_url}/runtime/maintenance") as response:
@@ -280,7 +281,7 @@ def test_maintenance_cycle_retries_failed_gateway_hook_registration() -> None:
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         runner.run_maintenance_cycle(now=retry_time)
         second = runner.integration_payload(now=retry_time)
@@ -371,7 +372,7 @@ def test_maintenance_cycle_respects_hook_registration_retry_interval_after_failu
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         before_retry = retry_time - timedelta(seconds=1)
         runner.run_maintenance_cycle(now=before_retry)
@@ -416,7 +417,7 @@ def test_maintenance_cycle_retries_hook_registration_after_retry_interval_elapse
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         retry_after = retry_time + timedelta(seconds=1)
         runner.run_maintenance_cycle(now=retry_after)
@@ -463,7 +464,7 @@ def test_maintenance_cycle_reports_hook_registration_retry_activity() -> None:
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         summary = runner.run_maintenance_cycle(now=retry_time)
     finally:
@@ -506,7 +507,7 @@ def test_maintenance_cycle_reports_skipped_hook_registration_retry_before_window
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         summary = runner.run_maintenance_cycle(now=retry_time - timedelta(seconds=1))
     finally:

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.api import TaskKernelApiApp
@@ -8,6 +8,7 @@ from sidecar.runtime.dispatcher import TaskDispatcher
 from sidecar.runtime.recovery import TaskRecovery
 from sidecar.runtime_mode import RuntimeModeController
 from sidecar.storage import connect, init_db
+from sidecar.time_utils import utc_now
 
 
 def _build_app() -> TaskKernelApiApp:
@@ -67,10 +68,10 @@ def test_recovery_handles_execution_timeout() -> None:
         current_role="executor",
         dispatch_status="running",
         dispatch_role="executor",
-        dispatch_started_at=(datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        dispatch_started_at=(utc_now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    recovered = recovery.recover_execution_timeouts(now=datetime.utcnow())
+    recovered = recovery.recover_execution_timeouts(now=utc_now())
     task = get_task_by_id(conn, task_id)
     events = list_recent_events(conn, task_id, limit=10)
 
@@ -94,10 +95,10 @@ def test_recovery_handles_review_timeout() -> None:
         current_role="reviewer",
         dispatch_status="running",
         dispatch_role="reviewer",
-        dispatch_started_at=(datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        dispatch_started_at=(utc_now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    recovered = recovery.recover_review_timeouts(now=datetime.utcnow())
+    recovered = recovery.recover_review_timeouts(now=utc_now())
     task = get_task_by_id(conn, task_id)
     events = list_recent_events(conn, task_id, limit=10)
 
@@ -119,10 +120,10 @@ def test_recovery_escalates_long_blocked_task() -> None:
         task_id,
         blocked=1,
         block_reason="waiting external dependency",
-        block_since=(datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+        block_since=(utc_now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    recovered = recovery.recover_blocked_tasks(now=datetime.utcnow())
+    recovered = recovery.recover_blocked_tasks(now=utc_now())
     task = get_task_by_id(conn, task_id)
     events = list_recent_events(conn, task_id, limit=10)
 
@@ -155,7 +156,7 @@ def test_recovery_run_once_returns_summary() -> None:
         current_role="executor",
         dispatch_status="running",
         dispatch_role="executor",
-        dispatch_started_at=(datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        dispatch_started_at=(utc_now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
     review_timeout_id = _create_task(app, request_id="req-recovery-runonce-review")
@@ -166,7 +167,7 @@ def test_recovery_run_once_returns_summary() -> None:
         current_role="reviewer",
         dispatch_status="running",
         dispatch_role="reviewer",
-        dispatch_started_at=(datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+        dispatch_started_at=(utc_now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
     blocked_id = _create_task(app, request_id="req-recovery-runonce-blocked")
@@ -175,10 +176,10 @@ def test_recovery_run_once_returns_summary() -> None:
         blocked_id,
         blocked=1,
         block_reason="waiting external dependency",
-        block_since=(datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+        block_since=(utc_now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    summary = recovery.run_once(now=datetime.utcnow())
+    summary = recovery.run_once(now=utc_now())
 
     assert inflight_id in summary["recover_dispatch"]
     assert exec_timeout_id in summary["escalate_timeout"]

@@ -14,6 +14,7 @@ from .contracts import (
     STATE_REVIEWING,
     TASK_STATES,
 )
+from .time_utils import ensure_utc, parse_utc_datetime, utc_now
 
 
 def get_state_entry_time(conn: sqlite3.Connection, task_id: str, state: str) -> datetime | None:
@@ -27,24 +28,11 @@ def get_state_entry_time(conn: sqlite3.Connection, task_id: str, state: str) -> 
     ).fetchone()
     if row is None:
         return None
-    return datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
+    return parse_utc_datetime(row["created_at"])
 
 
 def _parse_datetime(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-        try:
-            return datetime.strptime(text, pattern)
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None
+    return parse_utc_datetime(value)
 
 
 def _get_timeout_reference_time(conn: sqlite3.Connection, task_id: str, state: str, dispatch_started_at: Any) -> datetime | None:
@@ -61,7 +49,7 @@ def compute_metrics_snapshot(
     reviewing_timeout_sec: int,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    now = now or datetime.utcnow()
+    now = ensure_utc(now) if now is not None else utc_now()
     state_counts: dict[str, int] = {s: 0 for s in TASK_STATES}
     for row in conn.execute("SELECT state, COUNT(*) as cnt FROM tasks GROUP BY state").fetchall():
         state_counts[row["state"]] = row["cnt"]
@@ -100,7 +88,7 @@ def compute_anomaly_summary(
     reviewing_timeout_sec: int,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    now = now or datetime.utcnow()
+    now = ensure_utc(now) if now is not None else utc_now()
     anomalies: list[dict[str, Any]] = []
 
     blocked_ids = [row["task_id"] for row in conn.execute("SELECT task_id FROM tasks WHERE blocked = 1").fetchall()]
