@@ -9,6 +9,7 @@ _DEFAULTS: dict[str, Any] = {
     "host": "127.0.0.1",
     "port": 9600,
     "db_path": ":memory:",
+    "maintenance_interval_sec": 5.0,
     "executing_timeout_sec": 3600,
     "reviewing_timeout_sec": 1800,
     "blocked_alert_after_sec": 600,
@@ -16,6 +17,7 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 _INT_KEYS = {"port", "executing_timeout_sec", "reviewing_timeout_sec", "blocked_alert_after_sec"}
+_FLOAT_KEYS = {"maintenance_interval_sec"}
 
 
 def load_config() -> dict[str, Any]:
@@ -30,6 +32,11 @@ def load_config() -> dict[str, Any]:
                     cfg[key] = int(env_val)
                 except ValueError as exc:
                     raise ValueError(f"Invalid integer for {env_name}: {env_val!r}") from exc
+            elif key in _FLOAT_KEYS:
+                try:
+                    cfg[key] = float(env_val)
+                except ValueError as exc:
+                    raise ValueError(f"Invalid number for {env_name}: {env_val!r}") from exc
             else:
                 cfg[key] = env_val
     return cfg
