@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -9,6 +10,8 @@ from .. import contracts
 from ..api import TaskKernelApiApp
 from ..events import append_event
 from ..models import Task, create_task, get_task_by_id
+
+logger = logging.getLogger(__name__)
 
 
 class IngressAdapter:
@@ -34,6 +37,7 @@ class IngressAdapter:
         message = self._require_str(payload, "message")
         task_id = self._build_task_id(request_id)
         trace_id = str(payload.get("trace_id") or "").strip() or str(uuid.uuid4())
+        logger.info("ingress accepted request_id=%s task_id=%s trace=%s channel=%s", request_id, task_id, trace_id, channel)
         metadata = {
             "request_id": request_id,
             "trace_id": trace_id,
@@ -68,6 +72,7 @@ class IngressAdapter:
             action="ingress",
             summary=f"ingress accepted via {channel}: {title}",
             idempotency_key=request_id,
+            trace_id=trace_id,
         )
         self.app.conn.commit()
         return {"created": True, "task_id": task_id, "task": get_task_by_id(self.app.conn, task_id)}

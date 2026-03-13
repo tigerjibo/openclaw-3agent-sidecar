@@ -33,7 +33,7 @@ class TaskKernelApiApp:
             self.conn = connect(":memory:")
             init_db(self.conn)
 
-    def handle_request(self, method: str, path: str, *, body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    def handle_request(self, method: str, path: str, *, body: Optional[dict[str, Any]] = None, auto_commit: bool = True) -> dict[str, Any]:
         if method == "GET" and path == "/runtime-mode":
             return self._ok_response(get_runtime_mode_status(self.runtime_mode_controller))
 
@@ -50,7 +50,7 @@ class TaskKernelApiApp:
             return self._ok_response(snapshot)
 
         if method == "POST" and path == "/tasks":
-            return self._create_task(body or {})
+            return self._create_task(body or {}, auto_commit=auto_commit)
 
         if method == "GET" and path == "/tasks":
             return self._ok_response(list_tasks(self.conn))
@@ -65,21 +65,21 @@ class TaskKernelApiApp:
             return self._ok_response(task)
 
         if method == "POST" and path.endswith("/transition"):
-            return self._transition_task(path.split("/")[2], body or {})
+            return self._transition_task(path.split("/")[2], body or {}, auto_commit=auto_commit)
         if method == "POST" and path.endswith("/review"):
-            return self._review_task(path.split("/")[2], body or {})
+            return self._review_task(path.split("/")[2], body or {}, auto_commit=auto_commit)
         if method == "POST" and path.endswith("/block"):
-            return self._block_task(path.split("/")[2], body or {})
+            return self._block_task(path.split("/")[2], body or {}, auto_commit=auto_commit)
         if method == "POST" and path.endswith("/unblock"):
-            return self._unblock_task(path.split("/")[2], body or {})
+            return self._unblock_task(path.split("/")[2], body or {}, auto_commit=auto_commit)
         if method == "POST" and path.endswith("/cancel"):
-            return self._cancel_task(path.split("/")[2], body or {})
+            return self._cancel_task(path.split("/")[2], body or {}, auto_commit=auto_commit)
         if method == "POST" and path.endswith("/human-action"):
-            return self._human_action(path.split("/")[2], body or {})
+            return self._human_action(path.split("/")[2], body or {}, auto_commit=auto_commit)
 
         return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"route not found: {method} {path}", details={"method": method, "path": path})
 
-    def _create_task(self, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _create_task(self, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         required_fields = ("task_id", "title", "task_type")
         missing_fields = [field for field in required_fields if not request_body.get(field)]
         if missing_fields:
@@ -98,10 +98,11 @@ class TaskKernelApiApp:
             created_by=request_body.get("created_by"),
         )
         create_task(self.conn, task)
-        self.conn.commit()
+        if auto_commit:
+            self.conn.commit()
         return {"status": 201, "body": {"ok": True, "data": get_task_by_id(self.conn, task.task_id)}}
 
-    def _transition_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _transition_task(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -112,10 +113,10 @@ class TaskKernelApiApp:
         new_state = str(request_body.get("new_state", ""))
         if not can_actor_transition(actor_role, task["state"], new_state):
             return self._error_response(status=400, code=contracts.ERR_INVALID_STATE, message=f"invalid transition: {task['state']} -> {new_state}", details={"task_id": task_id, "old_state": task['state'], "new_state": new_state, "actor_role": actor_role})
-        updated = self._update_task_state(task, new_state=new_state, actor_role=actor_role, event_type=contracts.EVENT_TASK_TRANSITIONED, action=contracts.ACTION_TRANSITION, summary=f"{task['state']} -> {new_state}")
+        updated = self._update_task_state(task, new_state=new_state, actor_role=actor_role, event_type=contracts.EVENT_TASK_TRANSITIONED, action=contracts.ACTION_TRANSITION, summary=f"{task['state']} -> {new_state}", auto_commit=auto_commit)
         return self._ok_response(updated)
 
-    def _review_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _review_task(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -147,10 +148,11 @@ class TaskKernelApiApp:
             review_decision=decision,
             review_comment=comment,
             increment_review_round=True,
+            auto_commit=auto_commit,
         )
         return self._ok_response(updated)
 
-    def _block_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _block_task(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -162,11 +164,12 @@ class TaskKernelApiApp:
             return self._error_response(status=400, code=contracts.ERR_VALIDATION, message="reason is required", details={"field": "reason"})
         mark_task_blocked(self.conn, task_id, reason=reason, waiting_on=request_body.get("waiting_on"))
         self.conn.execute("UPDATE tasks SET version = version + 1, last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?", (f"blocked: {reason}", task_id))
-        append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_BLOCKED, actor=str(request_body.get("actor_role", "")) or None, action=contracts.ACTION_BLOCK, summary=f"blocked: {reason}", idempotency_key=self._get_idempotency_key(request_body))
-        self.conn.commit()
+        append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_BLOCKED, actor=str(request_body.get("actor_role", "")) or None, action=contracts.ACTION_BLOCK, summary=f"blocked: {reason}", idempotency_key=self._get_idempotency_key(request_body), trace_id=request_body.get("trace_id"))
+        if auto_commit:
+            self.conn.commit()
         return self._ok_response(get_task_by_id(self.conn, task_id))
 
-    def _unblock_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _unblock_task(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -175,11 +178,12 @@ class TaskKernelApiApp:
             return replay
         clear_task_blocked(self.conn, task_id)
         self.conn.execute("UPDATE tasks SET version = version + 1, last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?", ("unblocked", task_id))
-        append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_UNBLOCKED, actor=str(request_body.get("actor_role", "")) or None, action=contracts.ACTION_UNBLOCK, summary="unblocked", idempotency_key=self._get_idempotency_key(request_body))
-        self.conn.commit()
+        append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_UNBLOCKED, actor=str(request_body.get("actor_role", "")) or None, action=contracts.ACTION_UNBLOCK, summary="unblocked", idempotency_key=self._get_idempotency_key(request_body), trace_id=request_body.get("trace_id"))
+        if auto_commit:
+            self.conn.commit()
         return self._ok_response(get_task_by_id(self.conn, task_id))
 
-    def _cancel_task(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _cancel_task(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -192,10 +196,10 @@ class TaskKernelApiApp:
         actor_role = str(request_body.get("actor_role", ""))
         if not can_actor_transition(actor_role, task["state"], contracts.STATE_CANCELLED):
             return self._error_response(status=400, code=contracts.ERR_INVALID_STATE, message=f"invalid cancel transition: {task['state']} -> {contracts.STATE_CANCELLED}", details={"task_id": task_id, "old_state": task['state'], "new_state": contracts.STATE_CANCELLED, "actor_role": actor_role})
-        updated = self._update_task_state(task, new_state=contracts.STATE_CANCELLED, actor_role=actor_role, event_type=contracts.EVENT_TASK_CANCELLED, action=contracts.ACTION_CANCEL, summary="task cancelled", idempotency_key=self._get_idempotency_key(request_body))
+        updated = self._update_task_state(task, new_state=contracts.STATE_CANCELLED, actor_role=actor_role, event_type=contracts.EVENT_TASK_CANCELLED, action=contracts.ACTION_CANCEL, summary="task cancelled", idempotency_key=self._get_idempotency_key(request_body), auto_commit=auto_commit)
         return self._ok_response(updated)
 
-    def _human_action(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any]:
+    def _human_action(self, task_id: str, request_body: dict[str, Any], *, auto_commit: bool = True) -> dict[str, Any]:
         task = get_task_by_id(self.conn, task_id)
         if task is None:
             return self._error_response(status=404, code=contracts.ERR_NOT_FOUND, message=f"task not found: {task_id}", details={"task_id": task_id})
@@ -207,21 +211,22 @@ class TaskKernelApiApp:
             if str(task["state"]) != contracts.STATE_DONE:
                 return self._error_response(status=400, code=contracts.ERR_INVALID_STATE, message="confirm_done requires task state done", details={"task_id": task_id, "state": task['state']})
             self.conn.execute("UPDATE tasks SET version = version + 1, last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?", ("human confirmed done", task_id))
-            append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_DONE_CONFIRMED, actor="human", action=contracts.ACTION_CONFIRM_DONE, summary="human confirmed done")
-            self.conn.commit()
+            append_event(self.conn, task_id=task_id, event_type=contracts.EVENT_TASK_DONE_CONFIRMED, actor="human", action=contracts.ACTION_CONFIRM_DONE, summary="human confirmed done", trace_id=request_body.get("trace_id"))
+            if auto_commit:
+                self.conn.commit()
             return self._ok_response(get_task_by_id(self.conn, task_id))
         if action == "reject_to_rework":
             if str(task["state"]) != contracts.STATE_REVIEWING:
                 return self._error_response(status=400, code=contracts.ERR_INVALID_STATE, message="reject_to_rework requires task state reviewing", details={"task_id": task_id, "state": task['state']})
-            updated = self._update_task_state(task, new_state=contracts.STATE_REWORK, actor_role="human", event_type=contracts.EVENT_TASK_REVIEWED, action=contracts.ACTION_REVIEW_REJECT, summary=f"human rejected to rework: {str(request_body.get('comment', ''))}".strip(), review_decision="reject", review_comment=str(request_body.get("comment", "")), increment_review_round=True)
+            updated = self._update_task_state(task, new_state=contracts.STATE_REWORK, actor_role="human", event_type=contracts.EVENT_TASK_REVIEWED, action=contracts.ACTION_REVIEW_REJECT, summary=f"human rejected to rework: {str(request_body.get('comment', ''))}".strip(), review_decision="reject", review_comment=str(request_body.get("comment", "")), increment_review_round=True, auto_commit=auto_commit)
             return self._ok_response(updated)
         if action == "block":
-            return self._block_task(task_id, {**request_body, "actor_role": "human"})
+            return self._block_task(task_id, {**request_body, "actor_role": "human"}, auto_commit=auto_commit)
         if action == "unblock":
-            return self._unblock_task(task_id, {**request_body, "actor_role": "human"})
-        return self._cancel_task(task_id, {**request_body, "actor_role": str(task.get("current_role") or self._role_for_state(str(task['state'])) or "coordinator"), "expected_version": request_body.get("expected_version", task["version"])})
+            return self._unblock_task(task_id, {**request_body, "actor_role": "human"}, auto_commit=auto_commit)
+        return self._cancel_task(task_id, {**request_body, "actor_role": str(task.get("current_role") or self._role_for_state(str(task['state'])) or "coordinator"), "expected_version": request_body.get("expected_version", task["version"])}, auto_commit=auto_commit)
 
-    def _update_task_state(self, task: dict[str, Any], *, new_state: str, actor_role: str, event_type: str, action: str, summary: str, idempotency_key: Optional[str] = None, review_decision: Optional[str] = None, review_comment: Optional[str] = None, increment_review_round: bool = False) -> dict[str, Any]:
+    def _update_task_state(self, task: dict[str, Any], *, new_state: str, actor_role: str, event_type: str, action: str, summary: str, idempotency_key: Optional[str] = None, review_decision: Optional[str] = None, review_comment: Optional[str] = None, increment_review_round: bool = False, auto_commit: bool = True) -> dict[str, Any]:
         available, used = apply_rework_priority_flags(old_state=str(task["state"]), new_state=new_state, rework_priority_available=bool(task.get("rework_priority_available", 0)), rework_priority_used=bool(task.get("rework_priority_used", 0)))
         next_role = self._role_for_state(new_state)
         next_review_round = int(task.get("review_round", 0)) + (1 if increment_review_round else 0)
@@ -244,8 +249,9 @@ class TaskKernelApiApp:
             """,
             (new_state, next_role, next_version, review_decision, review_comment, next_review_round, int(available), int(used), summary, task["task_id"]),
         )
-        append_event(self.conn, task_id=str(task["task_id"]), event_type=event_type, actor=actor_role, action=action, summary=summary, idempotency_key=idempotency_key)
-        self.conn.commit()
+        append_event(self.conn, task_id=str(task["task_id"]), event_type=event_type, actor=actor_role, action=action, summary=summary, idempotency_key=idempotency_key, trace_id=request_body_trace_id(task))
+        if auto_commit:
+            self.conn.commit()
         return get_task_by_id(self.conn, str(task["task_id"]))
 
     def _idempotent_replay(self, task_id: str, request_body: dict[str, Any]) -> dict[str, Any] | None:
@@ -286,3 +292,9 @@ class TaskKernelApiApp:
 
     def _error_response(self, *, status: int, code: str, message: str, details: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {"status": status, "body": {"ok": False, "error": True, "code": code, "message": message, "details": details or {}}}
+
+
+def request_body_trace_id(task: dict[str, Any]) -> Optional[str]:
+    from .models import get_task_trace_id
+
+    return get_task_trace_id(task)

@@ -53,6 +53,10 @@ def init_db(conn: sqlite3.Connection) -> None:
             dispatch_role TEXT,
             dispatch_started_at TEXT,
             dispatch_attempts INTEGER NOT NULL DEFAULT 0,
+            dispatch_error_kind TEXT,
+            dispatch_error_status_code INTEGER,
+            dispatch_error_retryable INTEGER NOT NULL DEFAULT 0,
+            dispatch_error_message TEXT,
             rework_priority_available INTEGER NOT NULL DEFAULT 0,
             rework_priority_used INTEGER NOT NULL DEFAULT 0,
             blocked INTEGER NOT NULL DEFAULT 0,
@@ -76,11 +80,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             action TEXT,
             summary TEXT,
             idempotency_key TEXT,
+            trace_id TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY(task_id) REFERENCES tasks(task_id)
         )
         """
     )
+
+    _ensure_column(conn, "tasks", "dispatch_error_kind", "TEXT")
+    _ensure_column(conn, "tasks", "dispatch_error_status_code", "INTEGER")
+    _ensure_column(conn, "tasks", "dispatch_error_retryable", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "tasks", "dispatch_error_message", "TEXT")
+    _ensure_column(conn, "task_events", "trace_id", "TEXT")
 
     conn.execute(
         """
@@ -104,3 +115,9 @@ def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
 def get_column_names(conn: sqlite3.Connection, table_name: str) -> list[str]:
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     return [str(r[1]) for r in rows]
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_sql: str) -> None:
+    if column_name in get_column_names(conn, table_name):
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")

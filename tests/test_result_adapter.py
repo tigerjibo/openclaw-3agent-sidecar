@@ -42,6 +42,7 @@ def test_result_adapter_applies_coordinator_and_executor_success() -> None:
             "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "完成 sidecar 任务编排",
@@ -64,6 +65,7 @@ def test_result_adapter_applies_coordinator_and_executor_success() -> None:
             "invoke_id": executor_invoke["invoke_id"],
             "task_id": task_id,
             "role": "executor",
+            "trace_id": executor_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "result_summary": "已完成 ingress/result 最小闭环",
@@ -87,11 +89,13 @@ def test_result_adapter_handles_reviewer_reject_and_approve() -> None:
     result_adapter = ResultAdapter(app)
     task_id = _create_task(app)
 
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+            "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "完成评审闭环",
@@ -101,11 +105,13 @@ def test_result_adapter_handles_reviewer_reject_and_approve() -> None:
             },
         }
     )
+    executor_invoke = invoke.build_invoke(task_id, role="executor")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="executor")["invoke_id"],
+            "invoke_id": executor_invoke["invoke_id"],
             "task_id": task_id,
             "role": "executor",
+            "trace_id": executor_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "result_summary": "执行完成",
@@ -122,6 +128,7 @@ def test_result_adapter_handles_reviewer_reject_and_approve() -> None:
             "invoke_id": reject_invoke["invoke_id"],
             "task_id": task_id,
             "role": "reviewer",
+            "trace_id": reject_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "review_decision": "reject",
@@ -140,11 +147,13 @@ def test_result_adapter_handles_reviewer_reject_and_approve() -> None:
     assert rejected["review_decision"] == "reject"
     assert rejected["review_comment"] == "还缺少恢复策略"
 
+    rework_invoke = invoke.build_invoke(task_id, role="executor")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="executor")["invoke_id"],
+            "invoke_id": rework_invoke["invoke_id"],
             "task_id": task_id,
             "role": "executor",
+            "trace_id": rework_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "result_summary": "已补 recovery 设计",
@@ -160,6 +169,7 @@ def test_result_adapter_handles_reviewer_reject_and_approve() -> None:
             "invoke_id": approve_invoke["invoke_id"],
             "task_id": task_id,
             "role": "reviewer",
+            "trace_id": approve_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "review_decision": "approve",
