@@ -75,13 +75,20 @@ class ServiceRunner:
 
     def run_maintenance_cycle(self, *, now: datetime | None = None) -> dict[str, Any]:
         cycle_time = now or datetime.utcnow()
+        anomalies_before = self._anomalies_payload(now=cycle_time)
         recovery_summary = self._recovery.run_once(now=cycle_time)
         dispatched = self._scheduler.dispatch_ready_tasks(limit=10)
+        anomalies_after = self._anomalies_payload(now=cycle_time)
+        categories_before = self._ordered_categories(anomalies_before.get("by_category") or {})
+        categories_after = self._ordered_categories(anomalies_after.get("by_category") or {})
         summary = {
             "cycle_started_at": cycle_time.isoformat(),
             "recovery": recovery_summary,
             "dispatched_count": len(dispatched),
             "dispatched_task_ids": [str(item["task_id"]) for item in dispatched],
+            "anomaly_categories_before": categories_before,
+            "anomaly_categories_after": categories_after,
+            "resolved_categories": [category for category in categories_before if category not in categories_after],
         }
         with self._maintenance_lock:
             self._last_maintenance_summary = dict(summary)
@@ -103,7 +110,7 @@ class ServiceRunner:
         maintenance = self.maintenance_payload()
         anomalies = self._anomalies_payload(now=now)
         operator_guidance = self._operator_guidance(health=health, readiness=readiness, anomalies=anomalies)
-        intervention_summary = self._intervention_summary(anomalies=anomalies, maintenance=maintenance)
+        intervention_summary = self._intervention_summary(health=health, anomalies=anomalies, maintenance=maintenance)
         return {
             "status": str(health["status"]),
             "lifecycle_state": self.lifecycle_state,
@@ -206,10 +213,11 @@ class ServiceRunner:
             "rationale": "No active anomalies detected; continue observing normal operation.",
         }
 
-    def _intervention_summary(self, *, anomalies: dict[str, Any], maintenance: dict[str, Any]) -> dict[str, Any]:
+    def _intervention_summary(self, *, health: dict[str, object], anomalies: dict[str, Any], maintenance: dict[str, Any]) -> dict[str, Any]:
         items = anomalies.get("items") or []
         by_category = anomalies.get("by_category") or {}
         priority_order = ["blocked", "execution_timeout", "review_timeout", "pending_human_confirm"]
+        unresolved_categories = self._ordered_categories(by_category)
 
         priority_category: str | None = None
         for category in priority_order:
@@ -225,6 +233,10 @@ class ServiceRunner:
                     break
 
         last_cycle = maintenance.get("last_cycle")
+        resolved_categories: list[str] = []
+        if isinstance(last_cycle, dict):
+            resolved_categories = [str(category) for category in (last_cycle.get("resolved_categories") or [])]
+
         if int(anomalies.get("total_count") or 0) == 0:
             maintenance_effectiveness = "healthy"
         elif last_cycle is None:
@@ -234,8 +246,35 @@ class ServiceRunner:
             had_actions = bool(last_cycle.get("dispatched_task_ids")) or any(bool(recovery.get(key)) for key in ("recover_dispatch", "retry_dispatch", "escalate_timeout", "escalate_blocked"))
             maintenance_effectiveness = "in_progress" if had_actions else "no_effect"
 
+        if str(health.get("status")) == HEALTH_DEGRADED:
+            attention_reason = "Service health is degraded; prioritize manual intervention before anomaly triage."
+        elif priority_category is None:
+            if resolved_categories:
+                resolved_text = ", ".join(resolved_categories)
+                attention_reason = f"Recent maintenance resolved previously detected {resolved_text} anomalies."
+            else:
+                attention_reason = "No active anomalies require intervention."
+        elif maintenance_effectiveness == "no_recent_maintenance":
+            attention_reason = f"Priority focus is {priority_category} because {priority_category} anomalies remain without a recent maintenance cycle."
+        elif maintenance_effectiveness == "in_progress":
+            attention_reason = f"Priority focus is {priority_category} because maintenance has started acting on it, but the anomaly remains active."
+        elif maintenance_effectiveness == "no_effect":
+            attention_reason = f"Priority focus is {priority_category} because recent maintenance did not reduce the active anomaly set."
+        else:
+            attention_reason = f"Priority focus is {priority_category} because it remains the highest-severity active anomaly category."
+
         return {
             "priority_category": priority_category,
             "attention_task_ids": attention_task_ids,
+            "resolved_categories": resolved_categories,
+            "unresolved_categories": unresolved_categories,
             "maintenance_effectiveness": maintenance_effectiveness,
+            "attention_reason": attention_reason,
         }
+
+    def _ordered_categories(self, by_category: dict[str, Any]) -> list[str]:
+        priority_order = ["blocked", "execution_timeout", "review_timeout", "pending_human_confirm"]
+        categories = [str(category) for category, count in by_category.items() if int(count or 0) > 0]
+        ordered = [category for category in priority_order if category in categories]
+        ordered.extend(sorted(category for category in categories if category not in priority_order))
+        return ordered
