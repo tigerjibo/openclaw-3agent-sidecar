@@ -7,15 +7,15 @@ import threading
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from sidecar.api import TaskKernelApiApp
-from sidecar.briefing import build_brief
-from sidecar.config import load_config
-from sidecar.consistency import check_projection_consistency
-from sidecar.detail_view import render_task_detail_html
-from sidecar.events import list_recent_events
-from sidecar.feishu_projection import project_task_to_feishu_record
-from sidecar.metrics import compute_anomaly_summary, compute_metrics_snapshot, get_state_entry_time
-from sidecar.models import get_task_by_id, list_tasks
+from .api import TaskKernelApiApp
+from .briefing import build_brief
+from .config import load_config
+from .consistency import check_projection_consistency
+from .detail_view import render_task_detail_html
+from .events import list_recent_events
+from .feishu_projection import project_task_to_feishu_record
+from .metrics import compute_anomaly_summary, compute_metrics_snapshot, get_state_entry_time
+from .models import get_task_by_id, list_tasks
 
 
 class LocalTaskKernelHttpService:

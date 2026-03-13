@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from sidecar.contracts import (
+from .contracts import (
     ANOMALY_BLOCKED,
     ANOMALY_EXECUTION_TIMEOUT,
     ANOMALY_PENDING_HUMAN_CONFIRM,

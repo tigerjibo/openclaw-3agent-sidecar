@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Iterable
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "task_detail.html"
 
@@ -8,9 +9,9 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "task_detail.htm
 def render_task_detail_html(*, task: dict[str, object], brief: dict[str, object], recent_events: list[dict[str, object]]) -> str:
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
 
-    acceptance_items = "".join(f"<li>{item}</li>" for item in brief.get("acceptance_criteria", []))
-    risk_items = "".join(f"<li>{item}</li>" for item in brief.get("risk_notes", []))
-    step_items = "".join(f"<li>{item}</li>" for item in brief.get("proposed_steps", []))
+    acceptance_items = "".join(f"<li>{item}</li>" for item in _as_items(brief.get("acceptance_criteria")))
+    risk_items = "".join(f"<li>{item}</li>" for item in _as_items(brief.get("risk_notes")))
+    step_items = "".join(f"<li>{item}</li>" for item in _as_items(brief.get("proposed_steps")))
     event_items = "".join(f"<li>{item.get('summary', '')}</li>" for item in recent_events)
 
     return template.format(
@@ -27,3 +28,9 @@ def render_task_detail_html(*, task: dict[str, object], brief: dict[str, object]
         step_items=step_items,
         event_items=event_items,
     )
+
+
+def _as_items(value: Any) -> Iterable[Any]:
+    if isinstance(value, (list, tuple)):
+        return value
+    return ()

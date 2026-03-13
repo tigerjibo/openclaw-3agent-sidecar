@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from sidecar.contracts import CONFIG_KEYS
+from .contracts import CONFIG_KEYS
 
 _DEFAULTS: dict[str, Any] = {
     "host": "127.0.0.1",

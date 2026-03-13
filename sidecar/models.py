@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import sqlite3
 from typing import Optional
 
@@ -19,22 +20,26 @@ class Task:
     requires_human_confirm: bool = False
     source: Optional[str] = None
     created_by: Optional[str] = None
+    raw_request: Optional[str] = None
+    metadata_json: Optional[str] = None
 
 
 def create_task(conn: sqlite3.Connection, task: Task) -> None:
     conn.execute(
         """
         INSERT INTO tasks (
-            task_id, title, task_type, source, created_by,
+            task_id, title, task_type, source, raw_request, metadata_json, created_by,
             state, current_role, priority, risk_level, requires_human_confirm
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             task.task_id,
             task.title,
             task.task_type,
             task.source,
+            task.raw_request,
+            task.metadata_json,
             task.created_by,
             task.state,
             task.current_role,
@@ -54,6 +59,18 @@ def get_task_by_id(conn: sqlite3.Connection, task_id: str) -> Optional[dict]:
 def list_tasks(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC, task_id DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+def update_task_fields(conn: sqlite3.Connection, task_id: str, **fields: object) -> None:
+    if not fields:
+        return
+    assignments = ", ".join(f"{key} = ?" for key in fields)
+    values = [json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value for value in fields.values()]
+    conn.execute(
+        f"UPDATE tasks SET {assignments}, updated_at = datetime('now') WHERE task_id = ?",
+        (*values, task_id),
+    )
+    conn.commit()
 
 
 def mark_task_blocked(
