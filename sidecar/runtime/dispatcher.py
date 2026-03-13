@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..adapters.agent_invoke import AgentInvokeAdapter
@@ -7,6 +8,8 @@ from ..adapters.openclaw_runtime import OpenClawRuntimeBridge
 from ..api import TaskKernelApiApp
 from ..events import append_event
 from ..models import get_task_by_id, update_task_fields
+
+logger = logging.getLogger(__name__)
 
 _TERMINAL_STATES = {"done", "cancelled"}
 
@@ -34,7 +37,14 @@ class TaskDispatcher:
             return {"dispatched": False, "reason": "already_running", "task_id": task_id}
 
         invoke_payload = self.invoke_adapter.build_invoke(task_id, role=role)
-        runtime_submission = self.runtime_bridge.submit_invoke(invoke_payload) if self.runtime_bridge is not None else None
+        runtime_submission = None
+        submission_error = None
+        if self.runtime_bridge is not None:
+            try:
+                runtime_submission = self.runtime_bridge.submit_invoke(invoke_payload)
+            except Exception as exc:
+                logger.warning("Runtime submission failed for %s: %s", task_id, exc)
+                submission_error = str(exc)
         attempts = int(task.get("dispatch_attempts") or 0) + 1
         update_task_fields(
             self.app.conn,
@@ -50,22 +60,28 @@ class TaskDispatcher:
             "UPDATE tasks SET dispatch_started_at = datetime('now'), last_event_at = datetime('now') WHERE task_id = ?",
             (task_id,),
         )
+        event_summary = f"dispatch {role}: {invoke_payload['invoke_id']}"
+        if submission_error:
+            event_summary += f" (submission failed: {submission_error})"
         append_event(
             self.app.conn,
             task_id=task_id,
             event_type="task.dispatched",
             actor="dispatcher",
             action=role,
-            summary=f"dispatch {role}: {invoke_payload['invoke_id']}",
+            summary=event_summary,
             idempotency_key=f"dispatch:{invoke_payload['invoke_id']}",
         )
         self.app.conn.commit()
-        return {
+        result: dict[str, Any] = {
             "dispatched": True,
             "task_id": task_id,
             "invoke_payload": invoke_payload,
             "runtime_submission": runtime_submission,
         }
+        if submission_error:
+            result["submission_error"] = submission_error
+        return result
 
     def _now_expr_value(self) -> None:
         return None

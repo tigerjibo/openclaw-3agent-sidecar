@@ -48,7 +48,6 @@ def create_task(conn: sqlite3.Connection, task: Task) -> None:
             int(task.requires_human_confirm),
         ),
     )
-    conn.commit()
 
 
 def get_task_by_id(conn: sqlite3.Connection, task_id: str) -> Optional[dict]:
@@ -70,7 +69,6 @@ def update_task_fields(conn: sqlite3.Connection, task_id: str, **fields: object)
         f"UPDATE tasks SET {assignments}, updated_at = datetime('now') WHERE task_id = ?",
         (*values, task_id),
     )
-    conn.commit()
 
 
 def mark_task_blocked(
@@ -92,7 +90,6 @@ def mark_task_blocked(
         """,
         (reason, waiting_on, task_id),
     )
-    conn.commit()
 
 
 def clear_task_blocked(conn: sqlite3.Connection, task_id: str) -> None:
@@ -108,4 +105,3 @@ def clear_task_blocked(conn: sqlite3.Connection, task_id: str) -> None:
         """,
         (task_id,),
     )
-    conn.commit()

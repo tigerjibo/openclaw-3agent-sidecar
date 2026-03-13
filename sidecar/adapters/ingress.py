@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any
 
 from .. import contracts
@@ -32,8 +33,10 @@ class IngressAdapter:
         title = self._require_str(payload, "title")
         message = self._require_str(payload, "message")
         task_id = self._build_task_id(request_id)
+        trace_id = str(payload.get("trace_id") or "").strip() or str(uuid.uuid4())
         metadata = {
             "request_id": request_id,
+            "trace_id": trace_id,
             "source_message_id": payload.get("source_message_id"),
             "source_chat_id": payload.get("source_chat_id"),
             "metadata": payload.get("metadata") or {},

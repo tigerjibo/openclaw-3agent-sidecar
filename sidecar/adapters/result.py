@@ -48,11 +48,11 @@ class ResultAdapter:
             result = self._apply_success(task_id, role=role, output=output)
         elif status == "blocked":
             reason = str((output or {}).get("blocked_reason") or payload.get("error") or "blocked")
-            response = self.app.handle_request("POST", f"/tasks/{task_id}/block", body={"actor_role": role, "reason": reason, "idempotency_key": invoke_id})
+            response = self.app.handle_request("POST", f"/tasks/{task_id}/block", body={"actor_role": role, "reason": reason, "idempotency_key": f"block:{invoke_id}"})
             result = response["body"]["data"]
         else:
             reason = str(payload.get("error") or f"{role} execution failed")
-            response = self.app.handle_request("POST", f"/tasks/{task_id}/block", body={"actor_role": role, "reason": reason, "idempotency_key": invoke_id})
+            response = self.app.handle_request("POST", f"/tasks/{task_id}/block", body={"actor_role": role, "reason": reason, "idempotency_key": f"fail:{invoke_id}"})
             result = response["body"]["data"]
 
         update_task_fields(
@@ -63,6 +63,7 @@ class ResultAdapter:
             dispatch_role=None,
             dispatch_started_at=None,
         )
+        conn.commit()
         current = get_task_by_id(conn, task_id)
         if current is None:
             raise ValueError(f"task not found after applying result: {task_id}")

@@ -15,6 +15,8 @@ def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS tasks (

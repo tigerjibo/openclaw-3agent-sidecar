@@ -175,14 +175,91 @@
 2. 观察下一次自动重试是否恢复
 3. 若确认上游长期不可用，转人工停用该集成链路
 
-## 7. 最小验证命令
+## 7. 启动与部署 Checklist
 
-每次做完关键改动后，至少执行：
+### 环境变量（必填）
 
-- `pytest tests -q`
-- `python -m compileall sidecar`
+| 变量 | 说明 | 示例 |
+|---|---|---|
+| `OPENCLAW_DB_PATH` | SQLite 持久化路径 | `/data/sidecar/sidecar.sqlite3` |
 
-## 8. 值班口径建议
+### 环境变量（可选 — 集成模式）
+
+| 变量 | 说明 | 示例 |
+|---|---|---|
+| `OPENCLAW_GATEWAY_BASE_URL` | OpenClaw gateway 地址 | `https://openclaw.example.com` |
+| `OPENCLAW_HOOKS_TOKEN` | Hook 鉴权 token | `secret-token-xxx` |
+| `OPENCLAW_PUBLIC_BASE_URL` | Sidecar 对外可达地址 | `https://sidecar.example.com` |
+| `OPENCLAW_RUNTIME_INVOKE_URL` | Runtime invoke 端点 | `https://openclaw.example.com/invoke` |
+
+### 启动命令
+
+```bash
+# Linux / macOS
+OPENCLAW_DB_PATH=/data/sidecar/sidecar.sqlite3 python -m sidecar
+
+# Windows PowerShell
+$env:OPENCLAW_DB_PATH='C:\data\sidecar\sidecar.sqlite3'; python -m sidecar
+```
+
+### 健康检查
+
+- `GET /healthz` — 返回 `{"status": "ok"}` 即为健康
+- `GET /readyz` — 返回 `{"status": "ready"}` 即可接单
+- `GET /ops/summary` — 完整运维总览
+
+### 常见启动失败排查
+
+| 现象 | 检查 |
+|---|---|
+| 启动后 healthz 返回 failed | 检查 DB 路径是否可写 |
+| readyz 返回 blocked | 检查集成环境变量和 gateway 可达性 |
+| hook 注册持续失败 | 检查 `OPENCLAW_GATEWAY_BASE_URL` / `OPENCLAW_HOOKS_TOKEN` / 网络 |
+
+## 8. 数据生命周期与 TTL 策略
+
+### 当前行为
+
+- 任务和事件数据持久化在 SQLite 中，不会自动过期
+- 已完结的任务（`done` / `cancelled`）会一直保留
+
+### 推荐运维策略
+
+- 每 30 天归档或清理已完结超过 30 天的任务和事件
+- 归档前先备份 SQLite 文件：`cp sidecar.sqlite3 sidecar.sqlite3.bak`
+- 清理 SQL（仅在确认备份后执行）：
+
+```sql
+DELETE FROM task_events WHERE task_id IN (
+    SELECT task_id FROM tasks
+    WHERE state IN ('done', 'cancelled')
+    AND updated_at < datetime('now', '-30 days')
+);
+DELETE FROM tasks
+WHERE state IN ('done', 'cancelled')
+AND updated_at < datetime('now', '-30 days');
+VACUUM;
+```
+
+## 9. 本地 Smoke 验证流程
+
+每次部署后，按以下步骤验证：
+
+1. 启动服务：`python -m sidecar`
+2. 检查健康：`curl http://127.0.0.1:9600/healthz`
+3. 检查就绪：`curl http://127.0.0.1:9600/readyz`
+4. 检查运维总览：`curl http://127.0.0.1:9600/ops/summary`
+5. 若配置了集成，检查 hook 注册状态是否为 `registered`
+6. 若以上均正常，部署验证通过
+
+### 自动化验证命令
+
+```bash
+pytest tests -q
+python -m compileall sidecar
+```
+
+## 10. 值班口径建议
 
 对外可简单说：
 

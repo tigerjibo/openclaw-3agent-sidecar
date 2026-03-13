@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import json
+import socket
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+
+class OpenClawRequestError(RuntimeError):
+    """Structured error from OpenClaw HTTP requests."""
+
+    def __init__(self, message: str, *, kind: str, status_code: int | None = None, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.status_code = status_code
+        self.retryable = retryable
 
 
 class OpenClawRuntimeBridge(Protocol):
@@ -80,7 +91,10 @@ class OpenClawGatewayClient:
         try:
             with urlopen(request, timeout=self.timeout_sec) as response:
                 raw = response.read()
-                parsed = json.loads(raw.decode("utf-8")) if raw else None
+                try:
+                    parsed = json.loads(raw.decode("utf-8")) if raw else None
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    parsed = None
                 return {
                     "accepted": 200 <= int(response.status) < 300,
                     "ok": 200 <= int(response.status) < 300,
@@ -88,11 +102,34 @@ class OpenClawGatewayClient:
                     "response": parsed,
                 }
         except HTTPError as exc:
+            code = int(exc.code)
             body = exc.read()
             details = body.decode("utf-8", errors="replace") if body else ""
-            raise RuntimeError(f"{error_prefix} with HTTP {exc.code}: {details}") from exc
+            if 400 <= code < 500:
+                raise OpenClawRequestError(
+                    f"{error_prefix} with HTTP {code}: {details}",
+                    kind="client_error",
+                    status_code=code,
+                    retryable=code == 429,
+                ) from exc
+            raise OpenClawRequestError(
+                f"{error_prefix} with HTTP {code}: {details}",
+                kind="server_error",
+                status_code=code,
+                retryable=True,
+            ) from exc
+        except socket.timeout as exc:
+            raise OpenClawRequestError(
+                f"Timeout reaching OpenClaw gateway after {self.timeout_sec}s",
+                kind="timeout",
+                retryable=True,
+            ) from exc
         except URLError as exc:
-            raise RuntimeError(f"Unable to reach OpenClaw gateway: {exc.reason}") from exc
+            raise OpenClawRequestError(
+                f"Unable to reach OpenClaw gateway: {exc.reason}",
+                kind="connection_error",
+                retryable=True,
+            ) from exc
 
 
 class HttpOpenClawRuntimeBridge:
@@ -114,18 +151,44 @@ class HttpOpenClawRuntimeBridge:
         try:
             with urlopen(request, timeout=self.timeout_sec) as response:
                 raw = response.read()
-                parsed = json.loads(raw.decode("utf-8")) if raw else None
+                try:
+                    parsed = json.loads(raw.decode("utf-8")) if raw else None
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    parsed = None
                 return {
                     "accepted": 200 <= int(response.status) < 300,
                     "status_code": int(response.status),
                     "response": parsed,
                 }
         except HTTPError as exc:
+            code = int(exc.code)
             body = exc.read()
             details = body.decode("utf-8", errors="replace") if body else ""
-            raise RuntimeError(f"OpenClaw runtime rejected invoke with HTTP {exc.code}: {details}") from exc
+            if 400 <= code < 500:
+                raise OpenClawRequestError(
+                    f"OpenClaw runtime rejected invoke with HTTP {code}: {details}",
+                    kind="client_error",
+                    status_code=code,
+                    retryable=code == 429,
+                ) from exc
+            raise OpenClawRequestError(
+                f"OpenClaw runtime rejected invoke with HTTP {code}: {details}",
+                kind="server_error",
+                status_code=code,
+                retryable=True,
+            ) from exc
+        except socket.timeout as exc:
+            raise OpenClawRequestError(
+                f"Timeout reaching OpenClaw runtime after {self.timeout_sec}s",
+                kind="timeout",
+                retryable=True,
+            ) from exc
         except URLError as exc:
-            raise RuntimeError(f"Unable to reach OpenClaw runtime: {exc.reason}") from exc
+            raise OpenClawRequestError(
+                f"Unable to reach OpenClaw runtime: {exc.reason}",
+                kind="connection_error",
+                retryable=True,
+            ) from exc
 
     def probe_connectivity(self) -> dict[str, Any]:
         request = Request(
