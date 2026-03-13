@@ -183,7 +183,9 @@ class ServiceRunner:
     def integration_payload(self, *, now: datetime | None = None) -> dict[str, Any]:
         gateway_base_url_configured = bool(str(self._config.get("gateway_base_url") or "").strip())
         hooks_token_configured = bool(str(self._config.get("hooks_token") or "").strip())
+        public_base_url = str(self._config.get("public_base_url") or "").strip()
         runtime_invoke_url_configured = bool(str(self._config.get("runtime_invoke_url") or "").strip())
+        result_callback_url = self._hook_callback_urls(public_base_url)[1] if public_base_url else None
         hook_registration = dict(self._hook_registration_state)
         gateway = {
             "gateway_base_url_configured": gateway_base_url_configured,
@@ -194,18 +196,28 @@ class ServiceRunner:
             "hook_delivery_status": self._hook_delivery_status(hook_registration),
             "hook_registration": hook_registration,
         }
+        runtime_callback_missing_requirements: list[str] = []
+        if runtime_invoke_url_configured and not public_base_url:
+            runtime_callback_missing_requirements.append("public_base_url")
+        if runtime_invoke_url_configured and not hooks_token_configured:
+            runtime_callback_missing_requirements.append("hooks_token")
         runtime_invoke = {
             "invoke_url_configured": runtime_invoke_url_configured,
             "bridge_available": runtime_invoke_url_configured,
+            "result_callback_ready": runtime_invoke_url_configured and not runtime_callback_missing_requirements,
+            "result_callback_url": result_callback_url if runtime_invoke_url_configured and result_callback_url else None,
+            "missing_requirements": runtime_callback_missing_requirements,
         }
 
-        if gateway["hooks_enabled"] and runtime_invoke["bridge_available"]:
+        if gateway["hooks_enabled"] and runtime_invoke["result_callback_ready"]:
             status = "fully_configured"
-        elif gateway["hooks_enabled"]:
+        elif gateway["hooks_enabled"] and not runtime_invoke_url_configured:
             status = "gateway_hooks_ready"
-        elif runtime_invoke["bridge_available"]:
+        elif runtime_invoke["result_callback_ready"]:
             status = "runtime_invoke_ready"
-        elif gateway_base_url_configured or hooks_token_configured:
+        elif gateway["hooks_enabled"]:
+            status = "partially_configured"
+        elif runtime_invoke_url_configured or gateway_base_url_configured or hooks_token_configured or bool(public_base_url):
             status = "partially_configured"
         else:
             status = "local_only"
@@ -592,6 +604,13 @@ class ServiceRunner:
                     "action": "investigate_probe",
                     "rationale": f"{label} probe failed internally; inspect sidecar probe execution and upstream endpoint behavior.",
                 }
+        runtime_invoke = integration.get("runtime_invoke") or {}
+        if runtime_invoke.get("invoke_url_configured") and not runtime_invoke.get("result_callback_ready"):
+            missing = ", ".join(str(item) for item in (runtime_invoke.get("missing_requirements") or [])) or "public_base_url, hooks_token"
+            return {
+                "action": "configure_runtime_callbacks",
+                "rationale": f"Runtime invoke is configured but result callback wiring is incomplete; configure {missing} so OpenClaw can post results back to the sidecar.",
+            }
         return None
 
     def _with_component_failure_stats(self, *, component_name: str, probe: dict[str, Any], history: list[dict[str, Any]]) -> dict[str, Any]:
@@ -786,7 +805,16 @@ class ServiceRunner:
         invoke_url = str(self._config.get("runtime_invoke_url") or "").strip()
         if not invoke_url:
             return None
-        return HttpOpenClawRuntimeBridge(invoke_url)
+        public_base_url = str(self._config.get("public_base_url") or "").strip()
+        hooks_token = str(self._config.get("hooks_token") or "").strip()
+        result_callback_url = ""
+        if public_base_url and hooks_token:
+            _, result_callback_url = self._hook_callback_urls(public_base_url)
+        return HttpOpenClawRuntimeBridge(
+            invoke_url,
+            result_callback_url=result_callback_url,
+            hooks_token=hooks_token,
+        )
 
     def _build_gateway_client(self) -> OpenClawGatewayClient | None:
         gateway_base_url = str(self._config.get("gateway_base_url") or "").strip()

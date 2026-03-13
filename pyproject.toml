@@ -12,6 +12,7 @@ dependencies = []
 
 [project.scripts]
 openclaw-sidecar = "sidecar.__main__:main"
+openclaw-sidecar-smoke = "sidecar.smoke_demo:main"
 
 [tool.setuptools]
 include-package-data = true

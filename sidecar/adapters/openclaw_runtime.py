@@ -133,18 +133,29 @@ class OpenClawGatewayClient:
 
 
 class HttpOpenClawRuntimeBridge:
-    def __init__(self, invoke_url: str, *, timeout_sec: float = 10.0, extra_headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        invoke_url: str,
+        *,
+        timeout_sec: float = 10.0,
+        extra_headers: dict[str, str] | None = None,
+        result_callback_url: str = "",
+        hooks_token: str = "",
+    ) -> None:
         url = str(invoke_url).strip()
         if not url:
             raise ValueError("invoke_url is required")
         self.invoke_url = url
         self.timeout_sec = float(timeout_sec)
         self.extra_headers = dict(extra_headers or {})
+        self.result_callback_url = str(result_callback_url).strip()
+        self.hooks_token = str(hooks_token).strip()
 
     def submit_invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request_payload = self._build_request_payload(payload)
         request = Request(
             self.invoke_url,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
             headers={"Content-Type": "application/json; charset=utf-8", **self.extra_headers},
             method="POST",
         )
@@ -189,6 +200,26 @@ class HttpOpenClawRuntimeBridge:
                 kind="connection_error",
                 retryable=True,
             ) from exc
+
+    def _build_request_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request_payload = dict(payload)
+        result_callback = self._build_result_callback_payload()
+        if result_callback is None:
+            return request_payload
+
+        callbacks = dict(request_payload.get("callbacks") or {})
+        callbacks["result"] = result_callback
+        request_payload["callbacks"] = callbacks
+        return request_payload
+
+    def _build_result_callback_payload(self) -> dict[str, Any] | None:
+        if not self.result_callback_url:
+            return None
+
+        payload: dict[str, Any] = {"url": self.result_callback_url}
+        if self.hooks_token:
+            payload["headers"] = {"X-OpenClaw-Hooks-Token": self.hooks_token}
+        return payload
 
     def probe_connectivity(self) -> dict[str, Any]:
         request = Request(

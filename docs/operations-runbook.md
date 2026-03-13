@@ -51,6 +51,7 @@
 - `maintenance.last_cycle`
 - `integration.gateway.hook_delivery_status`
 - `integration.probe`
+- `integration.runtime_invoke.result_callback_ready`
 
 ### `GET /runtime/maintenance`
 
@@ -63,6 +64,21 @@
 - `last_cycle.hook_registration`
 
 ## 3. OpenClaw 集成字段怎么读
+
+### `integration.status`
+
+常见值：
+
+- `local_only`
+  - 还没有启用任何上游接线
+- `partially_configured`
+  - 已配置部分上游能力，但还缺 callback 或 gateway 前置条件
+- `gateway_hooks_ready`
+  - gateway hooks 已具备基本配置，但 direct runtime invoke 未启用
+- `runtime_invoke_ready`
+  - direct runtime invoke 与 result callback 均已就绪
+- `fully_configured`
+  - gateway hooks 与 direct runtime invoke 均已具备完整闭环配置
 
 ### `integration.gateway.hook_registration.status`
 
@@ -78,6 +94,23 @@
   - 自动注册失败，通常是网络或上游异常
 - `register_rejected`
   - 自动注册请求发出去了，但上游未接受
+
+### `integration.runtime_invoke.result_callback_ready`
+
+- `true`
+  - sidecar 已能在 outgoing invoke 里附带 `callbacks.result`，上游 runtime 可以直接回打结果
+- `false`
+  - 仅仅能把 invoke 发出去，**还不能形成真实闭环**
+
+此时继续看：
+
+- `integration.runtime_invoke.result_callback_url`
+- `integration.runtime_invoke.missing_requirements`
+
+最常见缺口是：
+
+- `public_base_url`
+- `hooks_token`
 
 ### `integration.gateway.hook_registration_ready`
 
@@ -142,6 +175,8 @@
 2. 确认该地址是上游 OpenClaw 可访问的公网/可达地址
 3. 重启服务或等待下一轮自动注册
 
+如果同时启用了 `OPENCLAW_RUNTIME_INVOKE_URL`，这一步也会顺带让 direct runtime invoke 的 result callback wiring 变为可用。
+
 ### 场景 B：`register_failed`
 
 表现：
@@ -175,6 +210,25 @@
 2. 观察下一次自动重试是否恢复
 3. 若确认上游长期不可用，转人工停用该集成链路
 
+### 场景 D：`configure_runtime_callbacks`
+
+表现：
+
+- `operator_guidance.action == configure_runtime_callbacks`
+- `integration.runtime_invoke.result_callback_ready == false`
+- `integration.runtime_invoke.missing_requirements` 非空
+
+含义：
+
+- sidecar 已能向上游 runtime 发 invoke
+- 但还不能让上游把结果安全打回 sidecar
+
+优先处理：
+
+1. 配置 `OPENCLAW_PUBLIC_BASE_URL`
+2. 保持 `OPENCLAW_HOOKS_TOKEN` 非空并与上游一致
+3. 再看 `GET /ops/summary` 中 `result_callback_ready` 是否转为 `true`
+
 ## 7. 启动与部署 Checklist
 
 ### 环境变量（必填）
@@ -192,6 +246,11 @@
 | `OPENCLAW_PUBLIC_BASE_URL` | Sidecar 对外可达地址 | `https://sidecar.example.com` |
 | `OPENCLAW_RUNTIME_INVOKE_URL` | Runtime invoke 端点 | `https://openclaw.example.com/invoke` |
 
+补充说明：
+
+- 若只配置 `OPENCLAW_RUNTIME_INVOKE_URL`，sidecar 只能“把活发出去”，不能算完整可回写闭环
+- 要让 direct runtime invoke 达到真实闭环，需要同时配置 `OPENCLAW_PUBLIC_BASE_URL` 与 `OPENCLAW_HOOKS_TOKEN`
+
 ### 启动命令
 
 ```bash
@@ -202,11 +261,25 @@ OPENCLAW_DB_PATH=/data/sidecar/sidecar.sqlite3 python -m sidecar
 $env:OPENCLAW_DB_PATH='C:\data\sidecar\sidecar.sqlite3'; python -m sidecar
 ```
 
+若只想快速确认真实 HTTP invoke/result 闭环是否还活着，可直接运行：
+
+```bash
+openclaw-sidecar-smoke
+```
+
+它会启动一个临时 sidecar + fake runtime，对外打印 JSON 摘要，适合作为交接、演示或值班快速自检。
+
 ### 健康检查
 
 - `GET /healthz` — 返回 `{"status": "ok"}` 即为健康
 - `GET /readyz` — 返回 `{"status": "ready"}` 即可接单
 - `GET /ops/summary` — 完整运维总览
+
+若启用了 runtime invoke，还应额外确认：
+
+- `ops.integration.runtime_invoke.result_callback_ready == true`
+
+否则说明“只接上了半条线”。
 
 ### 常见启动失败排查
 
@@ -250,13 +323,15 @@ VACUUM;
 3. 检查就绪：`curl http://127.0.0.1:9600/readyz`
 4. 检查运维总览：`curl http://127.0.0.1:9600/ops/summary`
 5. 若配置了集成，检查 hook 注册状态是否为 `registered`
-6. 若以上均正常，部署验证通过
+6. 若配置了 `OPENCLAW_RUNTIME_INVOKE_URL`，检查 `integration.runtime_invoke.result_callback_ready` 是否符合预期
+7. 若以上均正常，部署验证通过
 
 ### 自动化验证命令
 
 ```bash
 pytest tests -q
 python -m compileall sidecar
+openclaw-sidecar-smoke
 ```
 
 ## 10. 值班口径建议

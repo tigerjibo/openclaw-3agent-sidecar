@@ -175,6 +175,13 @@ Useful docs for handoff and operations:
 - `docs/product-requirements-roadmap.md`
 - `docs/operations-runbook.md`
 
+Quick integration smoke command:
+
+- `openclaw-sidecar-smoke`
+- or `python -m sidecar.smoke_demo`
+
+This boots a temporary sidecar plus a fake upstream runtime, runs a real HTTP `invoke -> result callback` closed loop, and prints a JSON summary with final task state, endpoint health, and integration readiness.
+
 ## Environment
 
 See `.env.example` and `.env` for the initial placeholder configuration.
@@ -189,6 +196,14 @@ Current gateway / hook related config includes:
 - `OPENCLAW_RUNTIME_INVOKE_URL`
 - `OPENCLAW_INTEGRATION_PROBE_TTL_SEC`
 
+For a **real HTTP invoke -> result callback** loop, treat these three values as a set:
+
+- `OPENCLAW_RUNTIME_INVOKE_URL`
+- `OPENCLAW_HOOKS_TOKEN`
+- `OPENCLAW_PUBLIC_BASE_URL`
+
+Only configuring `OPENCLAW_RUNTIME_INVOKE_URL` means the sidecar can submit work outward, but it still cannot advertise a stable authenticated result callback URL back to the upstream runtime. In that state, ops payloads report the integration as `partially_configured` rather than `fully_configured`.
+
 The adapter layer also now includes a lightweight OpenClaw gateway client skeleton for:
 
 - posting ingress/result hooks with the configured token
@@ -200,6 +215,8 @@ The sidecar now exposes an authenticated ingress hook for upstream integration:
 - `POST /hooks/openclaw/ingress`
 - `POST /hooks/openclaw/result`
 - header: `X-OpenClaw-Hooks-Token: <OPENCLAW_HOOKS_TOKEN>`
+
+When direct runtime invoke is enabled, the sidecar will also attach a `callbacks.result` contract to each outgoing invoke payload whenever both `OPENCLAW_PUBLIC_BASE_URL` and `OPENCLAW_HOOKS_TOKEN` are configured. This lets the upstream runtime post the structured role result directly back into `POST /hooks/openclaw/result`.
 
 When `OPENCLAW_PUBLIC_BASE_URL` is configured, the service runner will also try to
 auto-register these hook callback URLs with the upstream gateway during startup,

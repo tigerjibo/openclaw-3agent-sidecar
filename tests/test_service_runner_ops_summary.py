@@ -146,7 +146,18 @@ def test_ops_summary_payload_prefers_manual_intervention_when_health_is_degraded
     assert payload["intervention_summary"]["attention_reason"] == "Service health is degraded; prioritize manual intervention before anomaly triage."
 
 
-def test_ops_summary_payload_reports_fully_configured_gateway_and_runtime_integration() -> None:
+def test_ops_summary_payload_reports_partial_runtime_integration_without_public_callback_base() -> None:
+    class FakeGatewayClient:
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 200, "kind": None, "message": None}
+
+    class FakeRuntimeBridge:
+        def submit_invoke(self, payload: dict[str, object]) -> dict[str, object]:
+            return {"accepted": True, "status_code": 202, "response": payload}
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 204, "kind": None, "message": None}
+
     runner = ServiceRunner(
         config={
             "host": "127.0.0.1",
@@ -159,6 +170,8 @@ def test_ops_summary_payload_reports_fully_configured_gateway_and_runtime_integr
             "runtime_invoke_url": "http://127.0.0.1:18789/runtime/invoke",
         }
     )
+    runner._gateway_client = FakeGatewayClient()  # type: ignore[assignment]
+    runner._dispatcher.runtime_bridge = FakeRuntimeBridge()  # type: ignore[assignment]
 
     try:
         runner.start()
@@ -166,7 +179,7 @@ def test_ops_summary_payload_reports_fully_configured_gateway_and_runtime_integr
     finally:
         runner.stop()
 
-    assert payload["integration"]["status"] == "fully_configured"
+    assert payload["integration"]["status"] == "partially_configured"
     assert payload["integration"]["gateway"] == {
         "gateway_base_url_configured": True,
         "hooks_token_configured": True,
@@ -191,8 +204,12 @@ def test_ops_summary_payload_reports_fully_configured_gateway_and_runtime_integr
     assert payload["integration"]["runtime_invoke"] == {
         "invoke_url_configured": True,
         "bridge_available": True,
+        "result_callback_ready": False,
+        "result_callback_url": None,
+        "missing_requirements": ["public_base_url"],
     }
-    assert payload["health"]["integration"]["status"] == "fully_configured"
+    assert payload["health"]["integration"]["status"] == "partially_configured"
+    assert payload["operator_guidance"]["action"] == "configure_public_base_url"
 
 
 def test_service_runner_start_registers_gateway_hooks_when_public_base_url_is_configured() -> None:

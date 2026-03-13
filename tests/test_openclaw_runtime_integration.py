@@ -12,6 +12,7 @@ from sidecar.api import TaskKernelApiApp
 from sidecar.events import list_recent_events
 from sidecar.http_service import LocalTaskKernelHttpService
 from sidecar.models import get_task_by_id
+from sidecar.runtime.dispatcher import TaskDispatcher
 from sidecar.runtime_mode import RuntimeModeController
 from sidecar.storage import connect, init_db
 
@@ -107,6 +108,100 @@ class _OptionsStatusServer:
         self._thread.join(timeout=5)
 
 
+class _RuntimeCallbackServer:
+    def __init__(self, *, response_status: int = 202) -> None:
+        self.requests: list[dict[str, object]] = []
+        self.callback_responses: list[dict[str, object]] = []
+        self._response_status = int(response_status)
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                payload = json.loads(raw.decode("utf-8"))
+                outer.requests.append(
+                    {
+                        "method": "POST",
+                        "path": self.path,
+                        "headers": {key: value for key, value in self.headers.items()},
+                        "payload": payload,
+                    }
+                )
+                outer._post_result_callback(payload)
+
+                response = json.dumps({"accepted": 200 <= outer._response_status < 300, "submission_id": f"sub-{len(outer.requests):03d}"}).encode("utf-8")
+                self.send_response(outer._response_status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.base_url = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+
+    def _post_result_callback(self, invoke_payload: dict[str, Any]) -> None:
+        callback = cast(dict[str, Any], (invoke_payload.get("callbacks") or {}).get("result") or {})
+        callback_url = str(callback.get("url") or "").strip()
+        if not callback_url:
+            return
+
+        headers = cast(dict[str, str], callback.get("headers") or {})
+        request = Request(
+            callback_url,
+            data=json.dumps(self._result_payload(invoke_payload), ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8", **headers},
+            method="POST",
+        )
+        with urlopen(request, timeout=5) as response:
+            body = cast(dict[str, Any], json.loads(response.read().decode("utf-8")))
+            self.callback_responses.append({"status": response.status, "body": body})
+
+    def _result_payload(self, invoke_payload: dict[str, Any]) -> dict[str, Any]:
+        role = str(invoke_payload["role"])
+        output_by_role: dict[str, dict[str, object]] = {
+            "coordinator": {
+                "goal": "通过真实 HTTP invoke/result 跑通最小闭环",
+                "acceptance_criteria": ["coordinator/executor/reviewer 全链路完成"],
+                "risk_notes": ["不要让 result 早回写覆盖 dispatch 状态"],
+                "proposed_steps": ["dispatch coordinator", "dispatch executor", "dispatch reviewer"],
+            },
+            "executor": {
+                "result_summary": "executor 已通过 result callback 回写结果",
+                "evidence": ["runtime-http-callback"],
+                "open_issues": [],
+                "followup_notes": [],
+            },
+            "reviewer": {
+                "review_decision": "approve",
+                "review_comment": "真实 HTTP 最小闭环成立",
+                "reasons": ["result callback contract 可用"],
+                "required_rework": [],
+                "residual_risk": "低",
+            },
+        }
+        return {
+            "invoke_id": invoke_payload["invoke_id"],
+            "task_id": invoke_payload["task_id"],
+            "role": role,
+            "trace_id": invoke_payload["trace_id"],
+            "status": "succeeded",
+            "output": output_by_role[role],
+        }
+
+
 def _build_app() -> TaskKernelApiApp:
     conn = connect(":memory:")
     init_db(conn)
@@ -161,6 +256,38 @@ def test_http_openclaw_runtime_bridge_posts_invoke_payload() -> None:
     assert response["response"] == {"accepted": True, "submission_id": "sub-http-001"}
     assert server.requests[0]["payload"]["task_id"] == "task-test"
     assert server.requests[0]["payload"]["role"] == "coordinator"
+
+
+def test_http_openclaw_runtime_bridge_includes_result_callback_contract_when_configured() -> None:
+    server = _JsonCaptureServer()
+    server.start()
+
+    try:
+        bridge = HttpOpenClawRuntimeBridge(
+            f"{server.base_url}/invoke",
+            result_callback_url="https://sidecar.example.com/hooks/openclaw/result",
+            hooks_token="hook-secret",
+        )
+        response = bridge.submit_invoke(
+            {
+                "invoke_id": "inv:test:coordinator:v1:a1",
+                "task_id": "task-test",
+                "role": "coordinator",
+                "agent_id": "coordinator",
+                "trace_id": "trace-test",
+                "input": {"message": "hello"},
+            }
+        )
+    finally:
+        server.stop()
+
+    assert response["accepted"] is True
+    assert server.requests[0]["payload"]["callbacks"] == {
+        "result": {
+            "url": "https://sidecar.example.com/hooks/openclaw/result",
+            "headers": {"X-OpenClaw-Hooks-Token": "hook-secret"},
+        }
+    }
 
 
 def test_openclaw_gateway_client_posts_ingress_hook_with_token() -> None:
@@ -424,6 +551,112 @@ def test_runtime_result_endpoint_applies_role_output() -> None:
     assert task["goal"] == "打通 runtime result 回写"
     events = list_recent_events(conn, task_id, limit=10)
     assert any(event["summary"] == "coordinator result received via runtime: succeeded" for event in events)
+
+
+def test_dispatcher_completes_http_closed_loop_when_runtime_posts_result_callback(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+    runtime = _RuntimeCallbackServer(response_status=202)
+    ingress = IngressAdapter(app)
+
+    try:
+        service.start()
+        runtime.start()
+        assert service.base_url is not None
+        dispatcher = TaskDispatcher(
+            app,
+            runtime_bridge=HttpOpenClawRuntimeBridge(
+                f"{runtime.base_url}/invoke",
+                result_callback_url=f"{service.base_url}/hooks/openclaw/result",
+                hooks_token="hook-secret",
+            ),
+        )
+        task_id = ingress.ingest(
+            {
+                "request_id": "req-http-closed-loop-001",
+                "source": "openclaw",
+                "source_user_id": "user-http-closed-loop",
+                "entrypoint": "institutional_task",
+                "title": "真实 HTTP invoke/result 最小闭环",
+                "message": "请让 runtime 通过 callback 完成完整三角色闭环。",
+                "task_type_hint": "engineering",
+            }
+        )["task_id"]
+
+        first = dispatcher.dispatch_task(task_id)
+        second = dispatcher.dispatch_task(task_id)
+        third = dispatcher.dispatch_task(task_id)
+    finally:
+        runtime.stop()
+        service.stop()
+
+    assert first["dispatched"] is True
+    assert second["dispatched"] is True
+    assert third["dispatched"] is True
+    assert len(runtime.requests) == 3
+    assert runtime.requests[0]["payload"]["callbacks"]["result"]["url"].endswith("/hooks/openclaw/result")
+    assert all(item["status"] == 200 for item in runtime.callback_responses)
+
+    conn = app.conn
+    assert conn is not None
+    task = get_task_by_id(conn, task_id)
+    assert task is not None
+    assert task["state"] == "done"
+    assert task["current_role"] is None
+    events = list_recent_events(conn, task_id, limit=20)
+    assert any(event["summary"] == "coordinator result received via hook: succeeded" for event in events)
+    assert any(event["summary"] == "executor result received via hook: succeeded" for event in events)
+    assert any(event["summary"] == "reviewer result received via hook: succeeded" for event in events)
+
+
+def test_dispatcher_ignores_submit_failure_if_runtime_callback_already_advanced_task(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+    runtime = _RuntimeCallbackServer(response_status=504)
+    ingress = IngressAdapter(app)
+
+    try:
+        service.start()
+        runtime.start()
+        assert service.base_url is not None
+        dispatcher = TaskDispatcher(
+            app,
+            runtime_bridge=HttpOpenClawRuntimeBridge(
+                f"{runtime.base_url}/invoke",
+                result_callback_url=f"{service.base_url}/hooks/openclaw/result",
+                hooks_token="hook-secret",
+            ),
+        )
+        task_id = ingress.ingest(
+            {
+                "request_id": "req-http-late-failure-001",
+                "source": "openclaw",
+                "source_user_id": "user-http-late-failure",
+                "entrypoint": "institutional_task",
+                "title": "result 早于 submit 失败返回",
+                "message": "先回 result，再让 invoke 返回 504。",
+                "task_type_hint": "engineering",
+            }
+        )["task_id"]
+
+        result = dispatcher.dispatch_task(task_id)
+    finally:
+        runtime.stop()
+        service.stop()
+
+    assert result["dispatched"] is True
+    assert result["submission_state"] == "late_failure_ignored"
+    assert result["submission_error_kind"] == "server_error"
+
+    conn = app.conn
+    assert conn is not None
+    task = get_task_by_id(conn, task_id)
+    assert task is not None
+    assert task["state"] == "queued"
+    assert task["current_role"] == "executor"
+    assert task["dispatch_status"] == "idle"
 
 
 def test_openclaw_ingress_hook_requires_matching_hooks_token(monkeypatch) -> None:
