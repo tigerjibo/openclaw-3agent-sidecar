@@ -98,11 +98,12 @@ class ServiceRunner:
 
     def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
         agent_health = self._agent_health.snapshot(now=now)
+        maintenance = self.maintenance_payload()
         if self.lifecycle_state != "ready":
-            return {"status": HEALTH_FAILED, "agent_health": agent_health}
+            return {"status": HEALTH_FAILED, "agent_health": agent_health, "maintenance": maintenance}
         if agent_health["status"] == HEALTH_DEGRADED:
-            return {"status": HEALTH_DEGRADED, "agent_health": agent_health}
-        return {"status": HEALTH_OK, "agent_health": agent_health}
+            return {"status": HEALTH_DEGRADED, "agent_health": agent_health, "maintenance": maintenance}
+        return {"status": HEALTH_OK, "agent_health": agent_health, "maintenance": maintenance}
 
     def readiness_payload(self) -> dict[str, str]:
         if self.lifecycle_state == "ready":

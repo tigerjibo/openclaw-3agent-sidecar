@@ -31,11 +31,14 @@ def test_service_runner_health_payload_includes_agent_health_snapshot() -> None:
         runner.start()
         payload = runner.health_payload()
         agent_health = payload["agent_health"]
+        maintenance = payload["maintenance"]
         assert isinstance(agent_health, dict)
+        assert isinstance(maintenance, dict)
 
         assert payload["status"] == "ok"
         assert agent_health["status"] == "ok"
         assert agent_health["running_dispatch_count"] == 0
+        assert maintenance["last_cycle"] is None
     finally:
         runner.stop()
 
@@ -47,6 +50,8 @@ def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
 
     try:
         runner.start()
+        _create_task(runner, request_id="req-service-runner-stale-maintenance-summary")
+        runner.run_maintenance_cycle(now=datetime.utcnow())
         task_id = _create_task(runner, request_id="req-service-runner-stale")
         update_task_fields(
             conn,
@@ -60,11 +65,14 @@ def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
 
         payload = runner.health_payload(now=datetime.utcnow())
         agent_health = payload["agent_health"]
+        maintenance = payload["maintenance"]
         assert isinstance(agent_health, dict)
+        assert isinstance(maintenance, dict)
 
         assert payload["status"] == "degraded"
         assert agent_health["status"] == "degraded"
         assert task_id in agent_health["stale_dispatch_task_ids"]
+        assert maintenance["last_cycle"] is not None
     finally:
         runner.stop()
 
@@ -74,6 +82,8 @@ def test_healthz_endpoint_returns_agent_health_snapshot() -> None:
 
     try:
         runner.start()
+        _create_task(runner, request_id="req-service-runner-healthz-maintenance")
+        runner.run_maintenance_cycle(now=datetime.utcnow())
         assert runner.http_service.base_url is not None
 
         with urlopen(f"{runner.http_service.base_url}/healthz") as response:
@@ -82,5 +92,6 @@ def test_healthz_endpoint_returns_agent_health_snapshot() -> None:
         assert body["status"] == "ok"
         assert body["agent_health"]["status"] == "ok"
         assert "roles" in body["agent_health"]
+        assert body["maintenance"]["last_cycle"] is not None
     finally:
         runner.stop()
