@@ -38,6 +38,37 @@ class TaskDispatcher:
 
         invoke_payload = self.invoke_adapter.build_invoke(task_id, role=role)
         trace_id = str(invoke_payload.get("trace_id") or get_task_trace_id(task) or task_id)
+        attempts = int(task.get("dispatch_attempts") or 0) + 1
+        with self.app.conn:
+            update_task_fields(
+                self.app.conn,
+                task_id,
+                dispatch_status="running",
+                dispatch_role=role,
+                dispatch_started_at=self._now_expr_value(),
+                dispatch_attempts=attempts,
+                last_invoke_id=invoke_payload["invoke_id"],
+                last_event_summary=f"dispatch {role}: {invoke_payload['invoke_id']}",
+                dispatch_error_kind=None,
+                dispatch_error_status_code=None,
+                dispatch_error_retryable=0,
+                dispatch_error_message=None,
+            )
+            self.app.conn.execute(
+                "UPDATE tasks SET dispatch_started_at = datetime('now'), last_event_at = datetime('now') WHERE task_id = ?",
+                (task_id,),
+            )
+            append_event(
+                self.app.conn,
+                task_id=task_id,
+                event_type="task.dispatched",
+                actor="dispatcher",
+                action=role,
+                summary=f"dispatch {role}: {invoke_payload['invoke_id']}",
+                idempotency_key=f"dispatch:{invoke_payload['invoke_id']}",
+                trace_id=trace_id,
+            )
+
         runtime_submission = None
         submission_error = None
         submission_error_kind = None
@@ -57,83 +88,79 @@ class TaskDispatcher:
                 submission_error = str(exc)
                 submission_error_kind = "unexpected_error"
                 submission_retryable = False
-        attempts = int(task.get("dispatch_attempts") or 0) + 1
+        if submission_error is None:
+            return {
+                "dispatched": True,
+                "task_id": task_id,
+                "invoke_payload": invoke_payload,
+                "runtime_submission": runtime_submission,
+            }
+
         with self.app.conn:
-            if submission_error is None:
+            current = get_task_by_id(self.app.conn, task_id)
+            if current is None:
+                raise ValueError(f"task not found: {task_id}")
+
+            same_invoke = str(current.get("last_invoke_id") or "") == invoke_payload["invoke_id"]
+            still_running = str(current.get("dispatch_status") or "") == "running" and str(current.get("dispatch_role") or "") == role
+            if same_invoke and still_running:
                 update_task_fields(
                     self.app.conn,
                     task_id,
-                    dispatch_status="running",
+                    dispatch_status="submit_failed",
                     dispatch_role=role,
-                    dispatch_started_at=self._now_expr_value(),
+                    dispatch_started_at=None,
                     dispatch_attempts=attempts,
                     last_invoke_id=invoke_payload["invoke_id"],
-                    last_event_summary=f"dispatch {role}: {invoke_payload['invoke_id']}",
-                    dispatch_error_kind=None,
-                    dispatch_error_status_code=None,
-                    dispatch_error_retryable=0,
-                    dispatch_error_message=None,
+                    last_event_summary=f"dispatch failed {role}: {invoke_payload['invoke_id']}",
+                    dispatch_error_kind=submission_error_kind,
+                    dispatch_error_status_code=submission_status_code,
+                    dispatch_error_retryable=int(submission_retryable),
+                    dispatch_error_message=submission_error,
                 )
                 self.app.conn.execute(
-                    "UPDATE tasks SET dispatch_started_at = datetime('now'), last_event_at = datetime('now') WHERE task_id = ?",
+                    "UPDATE tasks SET last_event_at = datetime('now') WHERE task_id = ?",
                     (task_id,),
                 )
                 append_event(
                     self.app.conn,
                     task_id=task_id,
-                    event_type="task.dispatched",
+                    event_type="task.dispatch_failed",
                     actor="dispatcher",
                     action=role,
-                    summary=f"dispatch {role}: {invoke_payload['invoke_id']}",
-                    idempotency_key=f"dispatch:{invoke_payload['invoke_id']}",
+                    summary=f"dispatch failed {role}: {submission_error}",
+                    idempotency_key=f"dispatch-failed:{invoke_payload['invoke_id']}",
                     trace_id=trace_id,
                 )
                 return {
-                    "dispatched": True,
+                    "dispatched": False,
+                    "reason": "submit_failed",
                     "task_id": task_id,
                     "invoke_payload": invoke_payload,
                     "runtime_submission": runtime_submission,
+                    "submission_error": submission_error,
+                    "submission_error_kind": submission_error_kind,
+                    "submission_status_code": submission_status_code,
+                    "submission_retryable": submission_retryable,
                 }
 
-            update_task_fields(
-                self.app.conn,
-                task_id,
-                dispatch_status="submit_failed",
-                dispatch_role=role,
-                dispatch_started_at=None,
-                dispatch_attempts=attempts,
-                last_invoke_id=invoke_payload["invoke_id"],
-                last_event_summary=f"dispatch failed {role}: {invoke_payload['invoke_id']}",
-                dispatch_error_kind=submission_error_kind,
-                dispatch_error_status_code=submission_status_code,
-                dispatch_error_retryable=int(submission_retryable),
-                dispatch_error_message=submission_error,
-            )
-            self.app.conn.execute(
-                "UPDATE tasks SET last_event_at = datetime('now') WHERE task_id = ?",
-                (task_id,),
-            )
-            append_event(
-                self.app.conn,
-                task_id=task_id,
-                event_type="task.dispatch_failed",
-                actor="dispatcher",
-                action=role,
-                summary=f"dispatch failed {role}: {submission_error}",
-                idempotency_key=f"dispatch:{invoke_payload['invoke_id']}",
-                trace_id=trace_id,
-            )
-            return {
-                "dispatched": False,
-                "reason": "submit_failed",
-                "task_id": task_id,
-                "invoke_payload": invoke_payload,
-                "runtime_submission": runtime_submission,
-                "submission_error": submission_error,
-                "submission_error_kind": submission_error_kind,
-                "submission_status_code": submission_status_code,
-                "submission_retryable": submission_retryable,
-            }
+        logger.info(
+            "Runtime submission failure ignored after task progressed task=%s trace=%s invoke=%s",
+            task_id,
+            trace_id,
+            invoke_payload["invoke_id"],
+        )
+        return {
+            "dispatched": True,
+            "task_id": task_id,
+            "invoke_payload": invoke_payload,
+            "runtime_submission": runtime_submission,
+            "submission_error": submission_error,
+            "submission_error_kind": submission_error_kind,
+            "submission_status_code": submission_status_code,
+            "submission_retryable": submission_retryable,
+            "submission_state": "late_failure_ignored",
+        }
 
     def _now_expr_value(self) -> None:
         return None
