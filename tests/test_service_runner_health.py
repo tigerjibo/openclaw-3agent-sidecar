@@ -25,7 +25,7 @@ def _create_task(runner: ServiceRunner, request_id: str) -> str:
 
 
 def test_service_runner_health_payload_includes_agent_health_snapshot() -> None:
-    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single"})
+    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single", "maintenance_interval_sec": 0})
 
     try:
         runner.start()
@@ -41,7 +41,7 @@ def test_service_runner_health_payload_includes_agent_health_snapshot() -> None:
 
 
 def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
-    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single"})
+    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single", "maintenance_interval_sec": 0})
     conn = runner._app.conn
     assert conn is not None
 
@@ -70,7 +70,7 @@ def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
 
 
 def test_healthz_endpoint_returns_agent_health_snapshot() -> None:
-    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single"})
+    runner = ServiceRunner(config={"host": "127.0.0.1", "port": 0, "default_runtime_mode": "legacy_single", "maintenance_interval_sec": 0})
 
     try:
         runner.start()
