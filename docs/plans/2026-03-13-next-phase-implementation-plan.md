@@ -45,7 +45,7 @@
 
 > **评审纠偏**：原方案 Task 8 提出"引入 task_version 乐观锁"，但 `storage.py` schema 已有 `version INTEGER NOT NULL DEFAULT 1`，`result.py` 的每次状态流转均已在调用 `expected_version` 校验。因此 Task 8 应降级为**验证覆盖度**而非重新实现。
 
-3. **生产化运行硬化**
+1. **生产化运行硬化**
    - 收口配置、日志、启动方式、部署说明
    - 增加 smoke check / operator checklist
    - 把“样例部署”推进到“可实际试运行”的程度
@@ -66,6 +66,7 @@
 ### Task 0：SQLite WAL 模式与 busy_timeout
 
 **Files:**
+
 - Modify: `sidecar/storage.py`
 - Create: `tests/test_storage_wal.py`
 
@@ -82,6 +83,7 @@
 ### Task 1：补齐 restart consistency 测试矩阵
 
 **Files:**
+
 - Modify: `tests/test_service_runner_persistence.py`
 - Modify: `tests/test_service_runner_runtime_loop.py`
 - Modify: `tests/test_service_runner_health.py`
@@ -98,6 +100,7 @@
 ### Task 2：明确运行态持久化边界
 
 **Files:**
+
 - Modify: `sidecar/service_runner.py`
 - If needed: `sidecar/storage.py`
 - If needed: `sidecar/models.py`
@@ -113,6 +116,7 @@
 ### Task 3：补 runner shutdown/startup 收口语义
 
 **Files:**
+
 - Modify: `sidecar/service_runner.py`
 - Modify: `tests/test_service_runner_cli.py`
 - If needed: `tests/test_service_runner_runtime_loop.py`
@@ -124,6 +128,7 @@
 ### Task 4：梳理 Result / Dispatch 事务原子性边界
 
 **Files:**
+
 - Modify: `sidecar/adapters/result.py`
 - Modify: `sidecar/runtime/dispatcher.py`
 - Modify: `sidecar/models.py`
@@ -144,6 +149,7 @@
 ### Task 5：固化 sidecar 与 OpenClaw 的 contract（含 Trace ID / HITL）
 
 **Files:**
+
 - Modify: `docs/adapter-contract.md`
 - Modify: `docs/architecture.md`
 - Modify: `sidecar/contracts.py`
@@ -162,6 +168,7 @@
 ### Task 6：增强 gateway/runtime 适配层错误处理
 
 **Files:**
+
 - Modify: `sidecar/adapters/openclaw_runtime.py`
 - Modify: `tests/test_openclaw_runtime_integration.py`
 
@@ -178,6 +185,7 @@
 > **注意**：Task 7 依赖 Task 4（事务原子性）和 Task 5（Trace ID）的完成。
 
 **Files:**
+
 - Modify: `sidecar/runtime/dispatcher.py`
 - Modify: `sidecar/http_service.py`
 - Modify: `sidecar/service_runner.py`
@@ -194,6 +202,7 @@
 ### Task 8：验证现有 version 乐观锁覆盖度（降级为验证任务）
 
 **Files:**
+
 - Modify: `tests/test_result_adapter.py`（补充覆盖度测试）
 - If needed: `sidecar/adapters/result.py`
 
@@ -213,6 +222,7 @@
 > **TTL 归档从原 Task 4 拆出至此**：数据生命周期管理属于运维策略，不应与 WAL 基础设施绑定。
 
 **Files:**
+
 - Modify: `deploy/README.md`
 - Modify: `docs/operations-runbook.md`
 - If needed: `README.md`
@@ -224,10 +234,13 @@
    - 健康检查
    - 常见失败排查
 2. 明确 Linux/Windows 最小落地路径。
-3. 补一段“本地试运行 smoke 流程”。4. 补充数据生命周期约定：已完结任务和事件的归档/清理策略（如 30 天 TTL），作为运维 SOP 的一部分记录。
+3. 补一段“本地试运行 smoke 流程”。
+4. 补充数据生命周期约定：已完结任务和事件的归档/清理策略（如 30 天 TTL），作为运维 SOP 的一部分记录。
+
 ### Task 10：补 smoke 验证脚本或测试入口
 
 **Files:**
+
 - If needed: `tests/test_service_runner_cli.py`
 - If needed: `deploy/README.md`
 - If needed: `README.md`
@@ -241,6 +254,7 @@
 ### Task 11：补配置与日志约束
 
 **Files:**
+
 - Modify: `sidecar/config.py`
 - Modify: `sidecar/__main__.py`
 - If needed: `README.md`

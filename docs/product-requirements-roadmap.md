@@ -42,6 +42,7 @@
 ### P0 已完成
 
 #### 任务内核
+
 - `storage.py`
 - `models.py`
 - `events.py`
@@ -49,11 +50,13 @@
 - `api.py`
 
 #### 最小 adapter
+
 - `sidecar/adapters/ingress.py`
 - `sidecar/adapters/agent_invoke.py`
 - `sidecar/adapters/result.py`
 
 #### 最小 runtime
+
 - `sidecar/runtime/dispatcher.py`
 - `sidecar/runtime/scheduler.py`
 - `sidecar/runtime/recovery.py`
@@ -61,6 +64,7 @@
 - `sidecar/service_runner.py` 健康面已接入角色级 health snapshot
 
 #### 最小测试闭环
+
 - ingress 测试
 - invoke payload 测试
 - result 回写测试
@@ -82,18 +86,18 @@
 
 ### P1 待完成
 
-4. 与真实 OpenClaw runtime 的接线
+1. 与真实 OpenClaw runtime 的接线
    - 真实 ingress 来源对接
    - 真正的 agent invoke 路由
    - result 回写链路落地
 
-5. 业务入口闭环
+2. 业务入口闭环
    - Feishu / 指定制度化入口
    - 回传格式与人工动作入口
 
 ### P2 待完成
 
-6. 生产化与运维
+1. 生产化与运维
    - 部署脚手架
    - 配置管理
    - 指标与异常面板

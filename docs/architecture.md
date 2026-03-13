@@ -62,7 +62,7 @@ This framing must remain outside the runtime source of truth. Code, APIs, tests,
 Only **task** and **task_event** rows in SQLite survive restarts. All other `ServiceRunner` state is ephemeral and rebuilt automatically:
 
 | State | Persisted? | Recovery strategy |
-|---|---|---|
+| ----- | ---------- | ----------------- |
 | `tasks` table | Yes | Survives restart as-is |
 | `task_events` table | Yes | Survives restart as-is |
 | `dispatch_status=running` tasks | Yes (in DB) | `TaskRecovery.recover_inflight_dispatches()` resets to idle |
