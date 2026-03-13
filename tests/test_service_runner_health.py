@@ -7,6 +7,7 @@ from urllib.request import urlopen
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.models import update_task_fields
 from sidecar.service_runner import ServiceRunner
+from sidecar.time_utils import utc_now
 
 
 def _create_task(runner: ServiceRunner, request_id: str) -> str:
@@ -51,7 +52,7 @@ def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
     try:
         runner.start()
         _create_task(runner, request_id="req-service-runner-stale-maintenance-summary")
-        runner.run_maintenance_cycle(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
         task_id = _create_task(runner, request_id="req-service-runner-stale")
         update_task_fields(
             conn,
@@ -60,10 +61,10 @@ def test_service_runner_health_payload_degrades_for_stale_dispatch() -> None:
             current_role="executor",
             dispatch_status="running",
             dispatch_role="executor",
-            dispatch_started_at=(datetime.utcnow() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
+            dispatch_started_at=(utc_now() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        payload = runner.health_payload(now=datetime.utcnow())
+        payload = runner.health_payload(now=utc_now())
         agent_health = payload["agent_health"]
         maintenance = payload["maintenance"]
         assert isinstance(agent_health, dict)
@@ -83,7 +84,7 @@ def test_healthz_endpoint_returns_agent_health_snapshot() -> None:
     try:
         runner.start()
         _create_task(runner, request_id="req-service-runner-healthz-maintenance")
-        runner.run_maintenance_cycle(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
         assert runner.http_service.base_url is not None
 
         with urlopen(f"{runner.http_service.base_url}/healthz") as response:
@@ -127,7 +128,7 @@ def test_service_runner_health_payload_degrades_after_repeated_hook_registration
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         runner.run_maintenance_cycle(now=retry_time)
         payload = runner.health_payload(now=retry_time)
@@ -170,7 +171,7 @@ def test_service_runner_readiness_blocks_after_repeated_hook_registration_failur
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         runner.run_maintenance_cycle(now=retry_time)
         payload = runner.readiness_payload()
@@ -214,7 +215,7 @@ def test_readyz_endpoint_blocks_after_repeated_hook_registration_failures() -> N
 
     try:
         runner.start()
-        first = runner.integration_payload(now=datetime.utcnow())
+        first = runner.integration_payload(now=utc_now())
         retry_time = datetime.fromisoformat(str(first["gateway"]["hook_registration"]["next_retry_at"]))
         runner.run_maintenance_cycle(now=retry_time)
         assert runner.http_service.base_url is not None

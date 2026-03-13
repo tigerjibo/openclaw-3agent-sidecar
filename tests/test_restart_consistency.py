@@ -5,11 +5,12 @@ recovery, dispatch, timeout, and blocked handling all behave correctly.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.models import get_task_by_id, update_task_fields
 from sidecar.service_runner import ServiceRunner
+from sidecar.time_utils import utc_now
 
 
 def _runner_config(db_path: str) -> dict:
@@ -58,7 +59,7 @@ def test_restart_recovers_inflight_dispatch(tmp_path) -> None:
     r2 = ServiceRunner(config=cfg)
     r2.start()
     try:
-        summary = r2._recovery.run_once(now=datetime.utcnow())
+        summary = r2._recovery.run_once(now=utc_now())
         assert task_id in summary["recover_dispatch"]
         task = get_task_by_id(r2._app.conn, task_id)
         assert task["dispatch_status"] == "idle"
@@ -85,7 +86,7 @@ def test_restart_escalates_execution_timeout_once(tmp_path) -> None:
             current_role="executor",
             dispatch_status="running",
             dispatch_role="executor",
-            dispatch_started_at=(datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+            dispatch_started_at=(utc_now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
         )
         r1._app.conn.commit()
     finally:
@@ -94,11 +95,11 @@ def test_restart_escalates_execution_timeout_once(tmp_path) -> None:
     r2 = ServiceRunner(config=cfg)
     r2.start()
     try:
-        summary1 = r2._recovery.run_once(now=datetime.utcnow())
+        summary1 = r2._recovery.run_once(now=utc_now())
         assert task_id in summary1["escalate_timeout"]
 
         # Second run should NOT re-escalate (dispatch already reset to idle)
-        summary2 = r2._recovery.run_once(now=datetime.utcnow())
+        summary2 = r2._recovery.run_once(now=utc_now())
         assert task_id not in summary2["escalate_timeout"]
     finally:
         r2.stop()
@@ -120,7 +121,7 @@ def test_restart_blocked_task_still_detected(tmp_path) -> None:
             task_id,
             blocked=1,
             block_reason="external dependency",
-            block_since=(datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
+            block_since=(utc_now() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
         )
         r1._app.conn.commit()
     finally:
@@ -129,7 +130,7 @@ def test_restart_blocked_task_still_detected(tmp_path) -> None:
     r2 = ServiceRunner(config=cfg)
     r2.start()
     try:
-        summary = r2._recovery.run_once(now=datetime.utcnow())
+        summary = r2._recovery.run_once(now=utc_now())
         assert task_id in summary["escalate_blocked"]
 
         task = get_task_by_id(r2._app.conn, task_id)
@@ -156,7 +157,7 @@ def test_restart_maintenance_cycle_runs_clean(tmp_path) -> None:
     r2 = ServiceRunner(config=cfg)
     r2.start()
     try:
-        summary = r2.run_maintenance_cycle(now=datetime.utcnow())
+        summary = r2.run_maintenance_cycle(now=utc_now())
         assert "recovery" in summary
         assert "dispatched_count" in summary
     finally:
@@ -180,7 +181,7 @@ def test_restart_health_readiness_correct(tmp_path) -> None:
     r2 = ServiceRunner(config=cfg)
     r2.start()
     try:
-        health = r2.health_payload(now=datetime.utcnow())
+        health = r2.health_payload(now=utc_now())
         readiness = r2.readiness_payload()
         assert health["status"] in ("ok", "degraded")
         assert readiness["status"] in ("ready", "warming", "blocked")

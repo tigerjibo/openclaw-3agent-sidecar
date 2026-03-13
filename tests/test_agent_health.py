@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.api import TaskKernelApiApp
@@ -7,6 +7,7 @@ from sidecar.runtime.agent_health import AgentHealthMonitor
 from sidecar.runtime.dispatcher import TaskDispatcher
 from sidecar.runtime_mode import RuntimeModeController
 from sidecar.storage import connect, init_db
+from sidecar.time_utils import utc_now
 
 
 def _build_app() -> TaskKernelApiApp:
@@ -35,7 +36,7 @@ def test_agent_health_reports_ok_when_no_running_dispatch() -> None:
     app = _build_app()
     monitor = AgentHealthMonitor(app, stale_after_sec=300)
 
-    snapshot = monitor.snapshot(now=datetime.utcnow())
+    snapshot = monitor.snapshot(now=utc_now())
 
     assert snapshot["status"] == "ok"
     assert snapshot["running_dispatch_count"] == 0
@@ -55,7 +56,7 @@ def test_agent_health_reports_running_for_recent_dispatch() -> None:
 
     assert result["dispatched"] is True
 
-    snapshot = monitor.snapshot(now=datetime.utcnow())
+    snapshot = monitor.snapshot(now=utc_now())
 
     assert snapshot["status"] == "ok"
     assert snapshot["running_dispatch_count"] == 1
@@ -77,10 +78,10 @@ def test_agent_health_reports_degraded_for_stale_dispatch() -> None:
         current_role="executor",
         dispatch_status="running",
         dispatch_role="executor",
-        dispatch_started_at=(datetime.utcnow() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
+        dispatch_started_at=(utc_now() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    snapshot = monitor.snapshot(now=datetime.utcnow())
+    snapshot = monitor.snapshot(now=utc_now())
 
     assert snapshot["status"] == "degraded"
     assert task_id in snapshot["stale_dispatch_task_ids"]

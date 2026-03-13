@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from .. import contracts
+from ..time_utils import ensure_utc, parse_utc_datetime, utc_now
 
 _TERMINAL_STATES = {contracts.STATE_DONE, contracts.STATE_CANCELLED}
 _ROLES = ("coordinator", "executor", "reviewer")
@@ -17,7 +18,7 @@ class AgentHealthMonitor:
         self.stale_after_sec = int(stale_after_sec)
 
     def snapshot(self, *, now: datetime | None = None) -> dict[str, Any]:
-        current = now or datetime.utcnow()
+        current = ensure_utc(now) if now is not None else utc_now()
         rows = self.app.conn.execute(
             """
             SELECT task_id, dispatch_role, dispatch_started_at
@@ -67,17 +68,4 @@ class AgentHealthMonitor:
         }
 
     def _parse_datetime(self, value: Any) -> datetime | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                return datetime.strptime(text, pattern)
-            except ValueError:
-                continue
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            return None
+        return parse_utc_datetime(value)

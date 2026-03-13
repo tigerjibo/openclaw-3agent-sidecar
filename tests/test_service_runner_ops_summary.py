@@ -7,6 +7,7 @@ from urllib.request import urlopen
 from sidecar.adapters.ingress import IngressAdapter
 from sidecar.models import update_task_fields
 from sidecar.service_runner import ServiceRunner
+from sidecar.time_utils import utc_now
 
 
 def _create_task(runner: ServiceRunner, request_id: str) -> str:
@@ -37,8 +38,8 @@ def test_service_runner_ops_summary_payload_aggregates_health_readiness_and_main
     try:
         runner.start()
         task_id = _create_task(runner, request_id="req-service-runner-ops-summary")
-        runner.run_maintenance_cycle(now=datetime.utcnow())
-        payload = runner.ops_summary_payload(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
+        payload = runner.ops_summary_payload(now=utc_now())
     finally:
         runner.stop()
 
@@ -88,10 +89,10 @@ def test_ops_summary_payload_surfaces_blocked_anomaly_and_investigate_guidance()
             task_id,
             blocked=1,
             block_reason="waiting human input",
-            block_since=(datetime.utcnow() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+            block_since=(utc_now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        payload = runner.ops_summary_payload(now=datetime.utcnow())
+        payload = runner.ops_summary_payload(now=utc_now())
     finally:
         runner.stop()
 
@@ -161,7 +162,7 @@ def test_ops_summary_payload_reports_fully_configured_gateway_and_runtime_integr
 
     try:
         runner.start()
-        payload = runner.ops_summary_payload(now=datetime.utcnow())
+        payload = runner.ops_summary_payload(now=utc_now())
     finally:
         runner.stop()
 
@@ -958,11 +959,11 @@ def test_ops_summary_payload_marks_maintenance_as_in_progress_when_recent_cycle_
             task_id,
             blocked=1,
             block_reason="waiting human input",
-            block_since=(datetime.utcnow() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+            block_since=(utc_now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
         )
-        runner.run_maintenance_cycle(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
 
-        payload = runner.ops_summary_payload(now=datetime.utcnow())
+        payload = runner.ops_summary_payload(now=utc_now())
     finally:
         runner.stop()
 
@@ -1073,7 +1074,7 @@ def test_ops_summary_endpoint_returns_aggregated_runner_state() -> None:
     try:
         runner.start()
         _create_task(runner, request_id="req-service-runner-ops-summary-endpoint")
-        runner.run_maintenance_cycle(now=datetime.utcnow())
+        runner.run_maintenance_cycle(now=utc_now())
         assert runner.http_service.base_url is not None
 
         with urlopen(f"{runner.http_service.base_url}/ops/summary") as response:
