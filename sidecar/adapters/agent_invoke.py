@@ -5,7 +5,7 @@ from typing import Any
 
 from ..api import TaskKernelApiApp
 from ..events import list_recent_events
-from ..models import get_task_by_id
+from ..models import get_task_by_id, get_task_trace_id
 from ..runtime_mode import ROLE_NAMES
 
 _ROLE_GOALS: dict[str, str] = {
@@ -68,13 +68,4 @@ class AgentInvokeAdapter:
 
     def _extract_trace_id(self, task: dict[str, Any]) -> str:
         """Extract trace_id from task metadata_json, or fall back to task_id."""
-        raw = task.get("metadata_json")
-        if raw and isinstance(raw, str):
-            try:
-                meta = json.loads(raw)
-                tid = meta.get("trace_id")
-                if tid:
-                    return str(tid)
-            except (json.JSONDecodeError, AttributeError):
-                pass
-        return str(task.get("task_id") or "")
+        return str(get_task_trace_id(task) or task.get("task_id") or "")

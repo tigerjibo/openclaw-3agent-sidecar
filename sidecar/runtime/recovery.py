@@ -6,7 +6,8 @@ from typing import Any
 from .. import contracts
 from ..events import append_event
 from ..metrics import get_state_entry_time
-from ..models import update_task_fields
+from ..models import get_task_by_id, get_task_trace_id, update_task_fields
+from ..time_utils import ensure_utc, parse_utc_datetime, utc_now
 
 _TERMINAL_STATES = {contracts.STATE_DONE, contracts.STATE_CANCELLED}
 
@@ -38,6 +39,7 @@ class TaskRecovery:
         recovered: list[str] = []
         for row in rows:
             task_id = str(row["task_id"])
+            trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
             self._release_dispatch(task_id, summary="recovery released inflight dispatch")
             append_event(
                 self.app.conn,
@@ -46,6 +48,7 @@ class TaskRecovery:
                 actor="recovery",
                 action="recover_dispatch",
                 summary="recovery released inflight dispatch",
+                trace_id=trace_id,
             )
             recovered.append(task_id)
         self.app.conn.commit()
@@ -66,7 +69,7 @@ class TaskRecovery:
         )
 
     def recover_blocked_tasks(self, *, now: datetime | None = None) -> list[str]:
-        current = now or datetime.utcnow()
+        current = ensure_utc(now) if now is not None else utc_now()
         rows = self.app.conn.execute(
             """
             SELECT task_id, blocked, block_since
@@ -86,6 +89,7 @@ class TaskRecovery:
                 continue
 
             task_id = str(row["task_id"])
+            trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
             self.app.conn.execute(
                 "UPDATE tasks SET last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?",
                 ("recovery escalated blocked task", task_id),
@@ -97,6 +101,7 @@ class TaskRecovery:
                 actor="recovery",
                 action="escalate_blocked",
                 summary="recovery escalated blocked task",
+                trace_id=trace_id,
             )
             escalated.append(task_id)
 
@@ -108,14 +113,54 @@ class TaskRecovery:
         review_timeout = self.recover_review_timeouts(now=now)
         escalate_timeout = execution_timeout + [task_id for task_id in review_timeout if task_id not in execution_timeout]
         escalate_blocked = self.recover_blocked_tasks(now=now)
+        retry_dispatch = self.recover_retryable_submit_failures()
         recover_dispatch = self.recover_inflight_dispatches()
 
         return {
             "recover_dispatch": recover_dispatch,
-            "retry_dispatch": [],
+            "retry_dispatch": retry_dispatch,
             "escalate_timeout": escalate_timeout,
             "escalate_blocked": escalate_blocked,
         }
+
+    def recover_retryable_submit_failures(self) -> list[str]:
+        rows = self.app.conn.execute(
+            """
+            SELECT task_id FROM tasks
+            WHERE dispatch_status = 'submit_failed'
+              AND COALESCE(dispatch_error_retryable, 0) = 1
+              AND state NOT IN ('done', 'cancelled')
+            ORDER BY created_at ASC, task_id ASC
+            """
+        ).fetchall()
+
+        recovered: list[str] = []
+        for row in rows:
+            task_id = str(row["task_id"])
+            trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
+            update_task_fields(
+                self.app.conn,
+                task_id,
+                dispatch_status="idle",
+                dispatch_role=None,
+                dispatch_started_at=None,
+            )
+            self.app.conn.execute(
+                "UPDATE tasks SET last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?",
+                ("recovery released retryable submit failure", task_id),
+            )
+            append_event(
+                self.app.conn,
+                task_id=task_id,
+                event_type="task.recovered",
+                actor="recovery",
+                action="retry_dispatch",
+                summary="recovery released retryable submit failure",
+                trace_id=trace_id,
+            )
+            recovered.append(task_id)
+        self.app.conn.commit()
+        return recovered
 
     def _recover_state_timeouts(
         self,
@@ -124,7 +169,7 @@ class TaskRecovery:
         timeout_sec: int,
         now: datetime | None,
     ) -> list[str]:
-        current = now or datetime.utcnow()
+        current = ensure_utc(now) if now is not None else utc_now()
         rows = self.app.conn.execute(
             """
             SELECT task_id, dispatch_status, dispatch_started_at
@@ -139,6 +184,7 @@ class TaskRecovery:
         recovered: list[str] = []
         for row in rows:
             task_id = str(row["task_id"])
+            trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
             started_at = self._parse_datetime(row["dispatch_started_at"])
             if started_at is None:
                 started_at = get_state_entry_time(self.app.conn, task_id, state)
@@ -155,6 +201,7 @@ class TaskRecovery:
                 actor="recovery",
                 action="escalate_timeout",
                 summary=f"recovery timeout in state {state}",
+                trace_id=trace_id,
             )
             recovered.append(task_id)
 
@@ -175,17 +222,4 @@ class TaskRecovery:
         )
 
     def _parse_datetime(self, value: Any) -> datetime | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                return datetime.strptime(text, pattern)
-            except ValueError:
-                continue
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            return None
+        return parse_utc_datetime(value)

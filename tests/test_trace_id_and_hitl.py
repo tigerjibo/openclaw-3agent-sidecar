@@ -6,7 +6,9 @@ import urllib.request
 
 from sidecar.adapters.agent_invoke import AgentInvokeAdapter
 from sidecar.adapters.ingress import IngressAdapter
+from sidecar.adapters.result import ResultAdapter
 from sidecar.api import TaskKernelApiApp
+from sidecar.events import list_recent_events
 from sidecar.models import get_task_by_id, mark_task_blocked
 from sidecar.runtime_mode import RuntimeModeController
 from sidecar.service_runner import ServiceRunner
@@ -93,6 +95,43 @@ def test_invoke_trace_id_matches_ingress_trace_id() -> None:
     adapter = AgentInvokeAdapter(app)
     payload = adapter.build_invoke(result["task_id"], role="coordinator")
     assert payload["trace_id"] == "my-trace-abc"
+
+
+def test_events_persist_trace_id() -> None:
+    app = _build_app()
+    task_id = _ingest_task(app, "req-trace-event")
+    events = list_recent_events(app.conn, task_id, limit=10)
+
+    assert events
+    assert events[0]["trace_id"]
+
+
+def test_result_callback_requires_trace_id() -> None:
+    app = _build_app()
+    task_id = _ingest_task(app, "req-trace-required")
+    invoke = AgentInvokeAdapter(app)
+    result_adapter = ResultAdapter(app)
+    invoke_payload = invoke.build_invoke(task_id, role="coordinator")
+
+    try:
+        result_adapter.apply_result(
+            {
+                "invoke_id": invoke_payload["invoke_id"],
+                "task_id": task_id,
+                "role": "coordinator",
+                "status": "succeeded",
+                "output": {
+                    "goal": "should fail",
+                    "acceptance_criteria": [],
+                    "risk_notes": [],
+                    "proposed_steps": [],
+                },
+            }
+        )
+    except ValueError as exc:
+        assert "trace_id is required" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected trace_id validation failure")
 
 
 # ---------- HITL unblock HTTP endpoint ----------

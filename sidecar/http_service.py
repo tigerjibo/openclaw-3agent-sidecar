@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from typing import Any, Optional
 from urllib.parse import urlparse
+import uuid
 
 from .adapters.ingress import IngressAdapter
 from .adapters.result import ResultAdapter
@@ -18,6 +20,8 @@ from .events import list_recent_events
 from .feishu_projection import project_task_to_feishu_record
 from .metrics import compute_anomaly_summary, compute_metrics_snapshot, get_state_entry_time
 from .models import get_task_by_id, list_tasks
+
+logger = logging.getLogger(__name__)
 
 
 class LocalTaskKernelHttpService:
@@ -97,12 +101,14 @@ class LocalTaskKernelHttpService:
             return
 
         if method == "POST" and path == "/runtime/ingress":
-            payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="runtime")
+            with self._lock:
+                payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="runtime")
             self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
             return
 
         if method == "POST" and path == "/runtime/result":
-            payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="runtime")
+            with self._lock:
+                payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="runtime")
             self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 
@@ -110,21 +116,26 @@ class LocalTaskKernelHttpService:
             task_id = path.rsplit("/", 1)[-1]
             body = self._read_json_body(handler) or {}
             body.setdefault("actor_role", "human")
-            response = self.app.handle_request("POST", f"/tasks/{task_id}/unblock", body=body)
+            body.setdefault("trace_id", f"hitl-{uuid.uuid4()}")
+            logger.info("hitl unblock requested task=%s trace=%s", task_id, body["trace_id"])
+            with self._lock:
+                response = self.app.handle_request("POST", f"/tasks/{task_id}/unblock", body=body)
             self._write_json(handler, response["status"], response["body"])
             return
 
         if method == "POST" and path == "/hooks/openclaw/ingress":
             if not self._authorize_openclaw_hook(handler):
                 return
-            payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="hook")
+            with self._lock:
+                payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="hook")
             self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
             return
 
         if method == "POST" and path == "/hooks/openclaw/result":
             if not self._authorize_openclaw_hook(handler):
                 return
-            payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="hook")
+            with self._lock:
+                payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="hook")
             self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 

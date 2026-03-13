@@ -40,21 +40,24 @@ class FailingBridge:
 
 # ---------- Dispatch failure resilience ----------
 
-def test_dispatch_records_submission_error_but_still_marks_running() -> None:
-    """If runtime submission fails, dispatcher should still mark task as
-    running (so recovery can handle it) and include the error in the result."""
+def test_dispatch_records_submit_failed_state_and_structured_error() -> None:
+    """If runtime submission fails, dispatcher should record submit_failed and
+    structured error metadata rather than pretending the task is running."""
     app = _build_app()
     task_id = _ingest(app, "req-dispatch-fail")
     dispatcher = TaskDispatcher(app, runtime_bridge=FailingBridge())
 
     result = dispatcher.dispatch_task(task_id)
 
-    assert result["dispatched"] is True
+    assert result["dispatched"] is False
+    assert result["reason"] == "submit_failed"
     assert result["submission_error"] is not None
     assert "unreachable" in result["submission_error"]
+    assert result["submission_error_kind"] == "unexpected_error"
+    assert result["submission_retryable"] is False
 
     task = get_task_by_id(app.conn, task_id)
-    assert task["dispatch_status"] == "running"
+    assert task["dispatch_status"] == "submit_failed"
 
 
 # ---------- Duplicate result (idempotency) ----------
@@ -67,12 +70,14 @@ def test_duplicate_result_is_idempotent() -> None:
     invoke = AgentInvokeAdapter(app)
     result_adapter = ResultAdapter(app)
 
-    invoke_id = invoke.build_invoke(task_id, role="coordinator")["invoke_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
+    invoke_id = coordinator_invoke["invoke_id"]
     first = result_adapter.apply_result(
         {
             "invoke_id": invoke_id,
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "dup test",
@@ -90,6 +95,7 @@ def test_duplicate_result_is_idempotent() -> None:
             "invoke_id": invoke_id,
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {},
         }
@@ -120,6 +126,7 @@ def test_full_cycle_with_dispatcher_coordination() -> None:
             "invoke_id": d1["invoke_payload"]["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": d1["invoke_payload"]["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "full cycle",
@@ -144,6 +151,7 @@ def test_full_cycle_with_dispatcher_coordination() -> None:
             "invoke_id": d2["invoke_payload"]["invoke_id"],
             "task_id": task_id,
             "role": "executor",
+            "trace_id": d2["invoke_payload"]["trace_id"],
             "status": "succeeded",
             "output": {
                 "result_summary": "done",
@@ -168,6 +176,7 @@ def test_full_cycle_with_dispatcher_coordination() -> None:
             "invoke_id": d3["invoke_payload"]["invoke_id"],
             "task_id": task_id,
             "role": "reviewer",
+            "trace_id": d3["invoke_payload"]["trace_id"],
             "status": "succeeded",
             "output": {
                 "review_decision": "approve",

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..events import append_event
-from ..models import update_task_fields
+from ..models import get_task_by_id, get_task_trace_id, update_task_fields
 from .dispatcher import TaskDispatcher
 
 _TERMINAL_STATES = {"done", "cancelled"}
@@ -26,6 +26,7 @@ class TaskScheduler:
         recovered: list[str] = []
         for row in rows:
             task_id = str(row["task_id"])
+            trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
             update_task_fields(self.app.conn, task_id, dispatch_status="idle", dispatch_role=None, dispatch_started_at=None)
             self.app.conn.execute(
                 "UPDATE tasks SET last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?",
@@ -38,6 +39,7 @@ class TaskScheduler:
                 actor="scheduler",
                 action="recover_inflight",
                 summary="scheduler recovered inflight dispatch",
+                trace_id=trace_id,
             )
             recovered.append(task_id)
         self.app.conn.commit()
@@ -50,7 +52,11 @@ class TaskScheduler:
             WHERE blocked = 0
               AND current_role IS NOT NULL
               AND state NOT IN ('done', 'cancelled')
-              AND dispatch_status != 'running'
+                            AND (
+                                        dispatch_status = 'idle'
+                                 OR dispatch_status IS NULL
+                                 OR (dispatch_status = 'submit_failed' AND COALESCE(dispatch_error_retryable, 0) = 1)
+                            )
             ORDER BY created_at ASC, task_id ASC
             LIMIT ?
             """,

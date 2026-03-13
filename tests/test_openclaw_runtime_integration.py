@@ -389,6 +389,7 @@ def test_runtime_result_endpoint_applies_role_output() -> None:
             "task_type_hint": "engineering",
         }
     )["task_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
 
     try:
         service.start()
@@ -396,9 +397,10 @@ def test_runtime_result_endpoint_applies_role_output() -> None:
         status, body = _post_json(
             f"{service.base_url}/runtime/result",
             {
-                "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+                "invoke_id": coordinator_invoke["invoke_id"],
                 "task_id": task_id,
                 "role": "coordinator",
+                "trace_id": coordinator_invoke["trace_id"],
                 "status": "succeeded",
                 "output": {
                     "goal": "打通 runtime result 回写",
@@ -516,6 +518,7 @@ def test_openclaw_result_hook_requires_matching_hooks_token(monkeypatch) -> None
             "task_type_hint": "engineering",
         }
     )["task_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
 
     try:
         service.start()
@@ -523,9 +526,10 @@ def test_openclaw_result_hook_requires_matching_hooks_token(monkeypatch) -> None
         status, body = _post_json_with_headers(
             f"{service.base_url}/hooks/openclaw/result",
             {
-                "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+                "invoke_id": coordinator_invoke["invoke_id"],
                 "task_id": task_id,
                 "role": "coordinator",
+                "trace_id": coordinator_invoke["trace_id"],
                 "status": "succeeded",
                 "output": {
                     "goal": "打通 hook result 回写",

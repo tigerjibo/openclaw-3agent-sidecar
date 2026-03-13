@@ -50,11 +50,13 @@ def test_success_path_increments_version() -> None:
     task_before = get_task_by_id(app.conn, task_id)
     v0 = task_before["version"]
 
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+            "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "v check",
@@ -80,11 +82,13 @@ def test_block_path_increments_version() -> None:
     task_before = get_task_by_id(app.conn, task_id)
     v0 = task_before["version"]
 
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+            "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "blocked",
             "output": {"blocked_reason": "missing info"},
         }
@@ -106,11 +110,13 @@ def test_failed_path_increments_version() -> None:
     task_before = get_task_by_id(app.conn, task_id)
     v0 = task_before["version"]
 
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+            "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "failed",
             "error": "coordinator crashed",
         }
@@ -129,11 +135,13 @@ def test_concurrent_duplicate_result_rejected_by_idempotency() -> None:
     invoke = AgentInvokeAdapter(app)
     result_adapter = ResultAdapter(app)
 
-    invoke_id = invoke.build_invoke(task_id, role="coordinator")["invoke_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
+    invoke_id = coordinator_invoke["invoke_id"]
     payload = {
         "invoke_id": invoke_id,
         "task_id": task_id,
         "role": "coordinator",
+        "trace_id": coordinator_invoke["trace_id"],
         "status": "succeeded",
         "output": {
             "goal": "dup",

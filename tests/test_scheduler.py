@@ -78,6 +78,7 @@ def test_scheduler_dispatches_ready_task_after_state_progression() -> None:
             "invoke_id": first_dispatch["invoke_payload"]["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": first_dispatch["invoke_payload"]["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "自动推进",

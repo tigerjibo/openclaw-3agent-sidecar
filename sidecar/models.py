@@ -25,6 +25,11 @@ class Task:
 
 
 def create_task(conn: sqlite3.Connection, task: Task) -> None:
+    """Create a task row.
+
+    Contract: this helper does not commit. The caller owns the transaction
+    boundary and is responsible for commit/rollback.
+    """
     conn.execute(
         """
         INSERT INTO tasks (
@@ -61,6 +66,11 @@ def list_tasks(conn: sqlite3.Connection) -> list[dict]:
 
 
 def update_task_fields(conn: sqlite3.Connection, task_id: str, **fields: object) -> None:
+    """Update arbitrary task fields without committing.
+
+    Contract: this helper only mutates the current SQLite transaction.
+    Callers must explicitly commit or use a transaction context.
+    """
     if not fields:
         return
     assignments = ", ".join(f"{key} = ?" for key in fields)
@@ -78,6 +88,10 @@ def mark_task_blocked(
     reason: str,
     waiting_on: Optional[str] = None,
 ) -> None:
+    """Mark a task as blocked without committing.
+
+    Contract: caller owns commit/rollback.
+    """
     conn.execute(
         """
         UPDATE tasks
@@ -93,6 +107,10 @@ def mark_task_blocked(
 
 
 def clear_task_blocked(conn: sqlite3.Connection, task_id: str) -> None:
+    """Clear blocked flags without committing.
+
+    Contract: caller owns commit/rollback.
+    """
     conn.execute(
         """
         UPDATE tasks
@@ -105,3 +123,24 @@ def clear_task_blocked(conn: sqlite3.Connection, task_id: str) -> None:
         """,
         (task_id,),
     )
+
+
+def get_task_trace_id(task: Optional[dict]) -> Optional[str]:
+    """Extract trace_id from a task projection.
+
+    Returns ``None`` when no metadata_json/trace_id exists.
+    """
+    if not task:
+        return None
+    raw = task.get("metadata_json")
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        metadata = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    trace_id = metadata.get("trace_id")
+    if trace_id is None:
+        return None
+    text = str(trace_id).strip()
+    return text or None

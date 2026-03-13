@@ -34,11 +34,13 @@ def test_end_to_end_minimal_adapter_loop_reaches_done() -> None:
     )
     task_id = ingest_result["task_id"]
 
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="coordinator")["invoke_id"],
+            "invoke_id": coordinator_invoke["invoke_id"],
             "task_id": task_id,
             "role": "coordinator",
+            "trace_id": coordinator_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "goal": "跑通最小闭环",
@@ -48,11 +50,13 @@ def test_end_to_end_minimal_adapter_loop_reaches_done() -> None:
             },
         }
     )
+    executor_invoke = invoke.build_invoke(task_id, role="executor")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="executor")["invoke_id"],
+            "invoke_id": executor_invoke["invoke_id"],
             "task_id": task_id,
             "role": "executor",
+            "trace_id": executor_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "result_summary": "闭环已跑通",
@@ -62,11 +66,13 @@ def test_end_to_end_minimal_adapter_loop_reaches_done() -> None:
             },
         }
     )
+    reviewer_invoke = invoke.build_invoke(task_id, role="reviewer")
     result_adapter.apply_result(
         {
-            "invoke_id": invoke.build_invoke(task_id, role="reviewer")["invoke_id"],
+            "invoke_id": reviewer_invoke["invoke_id"],
             "task_id": task_id,
             "role": "reviewer",
+            "trace_id": reviewer_invoke["trace_id"],
             "status": "succeeded",
             "output": {
                 "review_decision": "approve",
