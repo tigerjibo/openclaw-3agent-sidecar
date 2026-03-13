@@ -103,6 +103,7 @@ class ServiceRunner:
         maintenance = self.maintenance_payload()
         anomalies = self._anomalies_payload(now=now)
         operator_guidance = self._operator_guidance(health=health, readiness=readiness, anomalies=anomalies)
+        intervention_summary = self._intervention_summary(anomalies=anomalies, maintenance=maintenance)
         return {
             "status": str(health["status"]),
             "lifecycle_state": self.lifecycle_state,
@@ -111,6 +112,7 @@ class ServiceRunner:
             "maintenance": maintenance,
             "anomalies": anomalies,
             "operator_guidance": operator_guidance,
+            "intervention_summary": intervention_summary,
         }
 
     def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
@@ -202,4 +204,38 @@ class ServiceRunner:
         return {
             "action": "observe",
             "rationale": "No active anomalies detected; continue observing normal operation.",
+        }
+
+    def _intervention_summary(self, *, anomalies: dict[str, Any], maintenance: dict[str, Any]) -> dict[str, Any]:
+        items = anomalies.get("items") or []
+        by_category = anomalies.get("by_category") or {}
+        priority_order = ["blocked", "execution_timeout", "review_timeout", "pending_human_confirm"]
+
+        priority_category: str | None = None
+        for category in priority_order:
+            if int(by_category.get(category) or 0) > 0:
+                priority_category = category
+                break
+
+        attention_task_ids: list[str] = []
+        if priority_category is not None:
+            for item in items:
+                if str(item.get("category")) == priority_category:
+                    attention_task_ids = [str(task_id) for task_id in (item.get("task_ids") or [])]
+                    break
+
+        last_cycle = maintenance.get("last_cycle")
+        if int(anomalies.get("total_count") or 0) == 0:
+            maintenance_effectiveness = "healthy"
+        elif last_cycle is None:
+            maintenance_effectiveness = "no_recent_maintenance"
+        else:
+            recovery = last_cycle.get("recovery") or {}
+            had_actions = bool(last_cycle.get("dispatched_task_ids")) or any(bool(recovery.get(key)) for key in ("recover_dispatch", "retry_dispatch", "escalate_timeout", "escalate_blocked"))
+            maintenance_effectiveness = "in_progress" if had_actions else "no_effect"
+
+        return {
+            "priority_category": priority_category,
+            "attention_task_ids": attention_task_ids,
+            "maintenance_effectiveness": maintenance_effectiveness,
         }
