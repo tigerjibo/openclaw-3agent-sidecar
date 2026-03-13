@@ -113,6 +113,7 @@ ANOMALY_CATEGORIES: Final[tuple[str, ...]] = (
 
 CONFIG_HOST: Final[str] = "host"
 CONFIG_PORT: Final[str] = "port"
+CONFIG_DB_PATH: Final[str] = "db_path"
 CONFIG_EXECUTING_TIMEOUT_SEC: Final[str] = "executing_timeout_sec"
 CONFIG_REVIEWING_TIMEOUT_SEC: Final[str] = "reviewing_timeout_sec"
 CONFIG_BLOCKED_ALERT_AFTER_SEC: Final[str] = "blocked_alert_after_sec"
@@ -121,6 +122,7 @@ CONFIG_DEFAULT_RUNTIME_MODE: Final[str] = "default_runtime_mode"
 CONFIG_KEYS: Final[tuple[str, ...]] = (
     CONFIG_HOST,
     CONFIG_PORT,
+    CONFIG_DB_PATH,
     CONFIG_EXECUTING_TIMEOUT_SEC,
     CONFIG_REVIEWING_TIMEOUT_SEC,
     CONFIG_BLOCKED_ALERT_AFTER_SEC,

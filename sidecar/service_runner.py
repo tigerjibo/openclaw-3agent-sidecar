@@ -21,11 +21,13 @@ class ServiceRunner:
     """Managed local service entrypoint with lifecycle and graceful shutdown."""
 
     def __init__(self, *, config: dict | None = None) -> None:
-        self._config = config or load_config()
+        self._config = load_config()
+        if config is not None:
+            self._config.update(config)
         self.lifecycle_state = "starting"
         self._signal_handlers_installed = False
 
-        conn = connect(":memory:")
+        conn = connect(self._config["db_path"])
         init_db(conn)
         controller = RuntimeModeController(production_model="default", mode=self._config["default_runtime_mode"])
         self._app = TaskKernelApiApp(runtime_mode_controller=controller, conn=conn)

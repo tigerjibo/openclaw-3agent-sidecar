@@ -5,7 +5,11 @@ from pathlib import Path
 
 
 def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    path_text = str(db_path)
+    if path_text != ":memory:":
+        path_obj = Path(path_text)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path_text, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
