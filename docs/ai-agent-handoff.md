@@ -69,6 +69,7 @@
 ## 当前代码状态（已完成）
 
 ### 核心内核
+
 - `sidecar/storage.py`
 - `sidecar/models.py`
 - `sidecar/events.py`
@@ -76,11 +77,13 @@
 - `sidecar/api.py`
 
 ### 适配层
+
 - `sidecar/adapters/ingress.py`
 - `sidecar/adapters/agent_invoke.py`
 - `sidecar/adapters/result.py`
 
 ### 运行时最小闭环
+
 - `sidecar/runtime/dispatcher.py`
 - `sidecar/runtime/scheduler.py`
 - `sidecar/runtime/recovery.py`
@@ -88,6 +91,7 @@
 - `sidecar/service_runner.py` 健康面已接入角色级 health snapshot
 
 ### 角色文件
+
 - `sidecar/roles/shared/AGENTS.md`
 - `sidecar/roles/coordinator/SOUL.md`
 - `sidecar/roles/executor/SOUL.md`

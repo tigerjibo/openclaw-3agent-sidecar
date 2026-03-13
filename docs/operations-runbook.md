@@ -180,13 +180,13 @@
 ### 环境变量（必填）
 
 | 变量 | 说明 | 示例 |
-|---|---|---|
+| ---- | ---- | ---- |
 | `OPENCLAW_DB_PATH` | SQLite 持久化路径 | `/data/sidecar/sidecar.sqlite3` |
 
 ### 环境变量（可选 — 集成模式）
 
 | 变量 | 说明 | 示例 |
-|---|---|---|
+| ---- | ---- | ---- |
 | `OPENCLAW_GATEWAY_BASE_URL` | OpenClaw gateway 地址 | `https://openclaw.example.com` |
 | `OPENCLAW_HOOKS_TOKEN` | Hook 鉴权 token | `secret-token-xxx` |
 | `OPENCLAW_PUBLIC_BASE_URL` | Sidecar 对外可达地址 | `https://sidecar.example.com` |
@@ -211,7 +211,7 @@ $env:OPENCLAW_DB_PATH='C:\data\sidecar\sidecar.sqlite3'; python -m sidecar
 ### 常见启动失败排查
 
 | 现象 | 检查 |
-|---|---|
+| ---- | ---- |
 | 启动后 healthz 返回 failed | 检查 DB 路径是否可写 |
 | readyz 返回 blocked | 检查集成环境变量和 gateway 可达性 |
 | hook 注册持续失败 | 检查 `OPENCLAW_GATEWAY_BASE_URL` / `OPENCLAW_HOOKS_TOKEN` / 网络 |
