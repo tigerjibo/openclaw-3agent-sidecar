@@ -8,6 +8,7 @@ from .contracts import CONFIG_KEYS
 _DEFAULTS: dict[str, Any] = {
     "host": "127.0.0.1",
     "port": 9600,
+    "db_path": ":memory:",
     "executing_timeout_sec": 3600,
     "reviewing_timeout_sec": 1800,
     "blocked_alert_after_sec": 600,
