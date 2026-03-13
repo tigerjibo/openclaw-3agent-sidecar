@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+
+def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            task_type TEXT NOT NULL,
+            source TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_by TEXT,
+            state TEXT NOT NULL DEFAULT 'inbox',
+            current_role TEXT,
+            priority TEXT NOT NULL DEFAULT 'normal',
+            risk_level TEXT NOT NULL DEFAULT 'normal',
+            requires_human_confirm INTEGER NOT NULL DEFAULT 0,
+            version INTEGER NOT NULL DEFAULT 1,
+            goal TEXT,
+            acceptance_criteria TEXT,
+            review_round INTEGER NOT NULL DEFAULT 0,
+            review_decision TEXT,
+            review_comment TEXT,
+            result_summary TEXT,
+            rework_priority_available INTEGER NOT NULL DEFAULT 0,
+            rework_priority_used INTEGER NOT NULL DEFAULT 0,
+            blocked INTEGER NOT NULL DEFAULT 0,
+            block_reason TEXT,
+            block_since TEXT,
+            waiting_on TEXT,
+            last_event_at TEXT,
+            last_event_summary TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS task_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            actor TEXT,
+            action TEXT,
+            summary TEXT,
+            idempotency_key TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(task_id) REFERENCES tasks(task_id)
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_task_events_task_idempotency
+        ON task_events(task_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+        """
+    )
+
+    conn.commit()
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def get_column_names(conn: sqlite3.Connection, table_name: str) -> list[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return [str(r[1]) for r in rows]

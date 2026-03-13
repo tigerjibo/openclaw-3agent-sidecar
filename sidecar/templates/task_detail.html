@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+</head>
+<body>
+  <h1>{title}</h1>
+  <section>
+    <h2>核心元数据</h2>
+    <p>Task ID: {task_id}</p>
+    <p>Task Type: {task_type}</p>
+    <p>State: {state}</p>
+    <p>Current Role: {current_role}</p>
+  </section>
+  <section>
+    <h2>Brief</h2>
+    <p>{goal}</p>
+    <h3>Acceptance Criteria</h3>
+    <ul>{acceptance_items}</ul>
+    <h3>Risk Notes</h3>
+    <ul>{risk_items}</ul>
+    <h3>Proposed Steps</h3>
+    <ul>{step_items}</ul>
+  </section>
+  <section>
+    <h2>Review</h2>
+    <p>Decision: {review_decision}</p>
+    <p>Comment: {review_comment}</p>
+  </section>
+  <section>
+    <h2>Recent Events</h2>
+    <ul>{event_items}</ul>
+  </section>
+</body>
+</html>
