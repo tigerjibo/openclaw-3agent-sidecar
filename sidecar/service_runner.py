@@ -11,6 +11,7 @@ from .api import TaskKernelApiApp
 from .config import load_config
 from .contracts import HEALTH_DEGRADED, HEALTH_FAILED, HEALTH_OK, READINESS_BLOCKED, READINESS_READY, READINESS_WARMING
 from .http_service import LocalTaskKernelHttpService
+from .metrics import compute_anomaly_summary
 from .runtime.agent_health import AgentHealthMonitor
 from .runtime.dispatcher import TaskDispatcher
 from .runtime.recovery import TaskRecovery
@@ -100,12 +101,16 @@ class ServiceRunner:
         health = self.health_payload(now=now)
         readiness = self.readiness_payload()
         maintenance = self.maintenance_payload()
+        anomalies = self._anomalies_payload(now=now)
+        operator_guidance = self._operator_guidance(health=health, readiness=readiness, anomalies=anomalies)
         return {
             "status": str(health["status"]),
             "lifecycle_state": self.lifecycle_state,
             "health": health,
             "readiness": readiness,
             "maintenance": maintenance,
+            "anomalies": anomalies,
+            "operator_guidance": operator_guidance,
         }
 
     def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
@@ -164,3 +169,37 @@ class ServiceRunner:
                 logger.exception("Maintenance cycle failed")
             if self._maintenance_stop.wait(timeout=interval):
                 break
+
+    def _anomalies_payload(self, *, now: datetime | None = None) -> dict[str, Any]:
+        conn = self._app.conn
+        if conn is None:
+            return {"total_count": 0, "by_category": {}, "items": []}
+        items = compute_anomaly_summary(
+            conn,
+            executing_timeout_sec=int(self._config["executing_timeout_sec"]),
+            reviewing_timeout_sec=int(self._config["reviewing_timeout_sec"]),
+            now=now,
+        )
+        by_category = {str(item["category"]): len(item.get("task_ids") or []) for item in items}
+        return {
+            "total_count": len(items),
+            "by_category": by_category,
+            "items": items,
+        }
+
+    def _operator_guidance(self, *, health: dict[str, object], readiness: dict[str, str], anomalies: dict[str, Any]) -> dict[str, str]:
+        if str(health.get("status")) == HEALTH_DEGRADED or readiness.get("status") == READINESS_BLOCKED:
+            return {
+                "action": "manual_intervention",
+                "rationale": "Service is degraded or blocked; operator intervention is recommended.",
+            }
+        if int(anomalies.get("total_count") or 0) > 0:
+            categories = ", ".join(sorted(str(key) for key in (anomalies.get("by_category") or {}).keys()))
+            return {
+                "action": "investigate",
+                "rationale": f"Anomalies detected in categories: {categories or 'unknown'}.",
+            }
+        return {
+            "action": "observe",
+            "rationale": "No active anomalies detected; continue observing normal operation.",
+        }

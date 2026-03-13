@@ -5,6 +5,7 @@ from datetime import datetime
 from urllib.request import urlopen
 
 from sidecar.adapters.ingress import IngressAdapter
+from sidecar.models import update_task_fields
 from sidecar.service_runner import ServiceRunner
 
 
@@ -46,7 +47,76 @@ def test_service_runner_ops_summary_payload_aggregates_health_readiness_and_main
     assert payload["health"]["status"] == "ok"
     assert payload["readiness"]["status"] == "ready"
     assert payload["maintenance"]["last_cycle"] is not None
+    assert payload["anomalies"]["total_count"] == 0
+    assert payload["operator_guidance"]["action"] == "observe"
     assert task_id in payload["maintenance"]["last_cycle"]["dispatched_task_ids"]
+
+
+def test_ops_summary_payload_surfaces_blocked_anomaly_and_investigate_guidance() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "blocked_alert_after_sec": 60,
+        }
+    )
+    conn = runner._app.conn
+    assert conn is not None
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-ops-summary-blocked")
+        update_task_fields(
+            conn,
+            task_id,
+            blocked=1,
+            block_reason="waiting human input",
+            block_since=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+        payload = runner.ops_summary_payload(now=datetime.utcnow())
+    finally:
+        runner.stop()
+
+    assert payload["anomalies"]["total_count"] == 1
+    assert payload["anomalies"]["by_category"]["blocked"] == 1
+    assert task_id in payload["anomalies"]["items"][0]["task_ids"]
+    assert payload["operator_guidance"]["action"] == "investigate"
+
+
+def test_ops_summary_payload_prefers_manual_intervention_when_health_is_degraded() -> None:
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+        }
+    )
+    conn = runner._app.conn
+    assert conn is not None
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-ops-summary-degraded")
+        update_task_fields(
+            conn,
+            task_id,
+            state="executing",
+            current_role="executor",
+            dispatch_status="running",
+            dispatch_role="executor",
+            dispatch_started_at="2026-03-13 00:00:00",
+        )
+
+        payload = runner.ops_summary_payload(now=datetime(2026, 3, 13, 1, 0, 0))
+    finally:
+        runner.stop()
+
+    assert payload["health"]["status"] == "degraded"
+    assert payload["operator_guidance"]["action"] == "manual_intervention"
 
 
 def test_ops_summary_endpoint_returns_aggregated_runner_state() -> None:
@@ -75,3 +145,5 @@ def test_ops_summary_endpoint_returns_aggregated_runner_state() -> None:
     assert body["ops"]["health"]["status"] == "ok"
     assert body["ops"]["readiness"]["status"] == "ready"
     assert body["ops"]["maintenance"]["last_cycle"] is not None
+    assert "anomalies" in body["ops"]
+    assert "operator_guidance" in body["ops"]
