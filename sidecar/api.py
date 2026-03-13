@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import sqlite3
 from typing import Any, Optional
 
-from sidecar import contracts
-from sidecar.events import append_event
-from sidecar.models import (
+from . import contracts
+from .events import append_event
+from .models import (
     Task,
     clear_task_blocked,
     create_task,
@@ -14,9 +14,9 @@ from sidecar.models import (
     list_tasks,
     mark_task_blocked,
 )
-from sidecar.runtime_mode import RuntimeModeController
-from sidecar.state_machine import apply_rework_priority_flags, can_actor_transition
-from sidecar.storage import connect, init_db
+from .runtime_mode import RuntimeModeController
+from .state_machine import apply_rework_priority_flags, can_actor_transition
+from .storage import connect, init_db
 
 
 def get_runtime_mode_status(controller: RuntimeModeController) -> dict[str, object]:

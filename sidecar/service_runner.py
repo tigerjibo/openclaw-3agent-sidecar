@@ -4,13 +4,15 @@ import logging
 import signal
 import sys
 import threading
+from datetime import datetime
 
-from sidecar.api import TaskKernelApiApp
-from sidecar.config import load_config
-from sidecar.contracts import HEALTH_FAILED, HEALTH_OK, READINESS_BLOCKED, READINESS_READY, READINESS_WARMING
-from sidecar.http_service import LocalTaskKernelHttpService
-from sidecar.runtime_mode import RuntimeModeController
-from sidecar.storage import connect, init_db
+from .api import TaskKernelApiApp
+from .config import load_config
+from .contracts import HEALTH_DEGRADED, HEALTH_FAILED, HEALTH_OK, READINESS_BLOCKED, READINESS_READY, READINESS_WARMING
+from .http_service import LocalTaskKernelHttpService
+from .runtime.agent_health import AgentHealthMonitor
+from .runtime_mode import RuntimeModeController
+from .storage import connect, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ class ServiceRunner:
         init_db(conn)
         controller = RuntimeModeController(production_model="default", mode=self._config["default_runtime_mode"])
         self._app = TaskKernelApiApp(runtime_mode_controller=controller, conn=conn)
+        self._agent_health = AgentHealthMonitor(self._app)
         self._http = LocalTaskKernelHttpService(app=self._app, host=self._config["host"], port=self._config["port"])
         self._http.service_runner = self  # type: ignore[attr-defined]
 
@@ -49,10 +52,13 @@ class ServiceRunner:
             self._app.conn.close()
         logger.info("Service stopped.")
 
-    def health_payload(self) -> dict[str, str]:
-        if self.lifecycle_state == "ready":
-            return {"status": HEALTH_OK}
-        return {"status": HEALTH_FAILED}
+    def health_payload(self, *, now: datetime | None = None) -> dict[str, object]:
+        agent_health = self._agent_health.snapshot(now=now)
+        if self.lifecycle_state != "ready":
+            return {"status": HEALTH_FAILED, "agent_health": agent_health}
+        if agent_health["status"] == HEALTH_DEGRADED:
+            return {"status": HEALTH_DEGRADED, "agent_health": agent_health}
+        return {"status": HEALTH_OK, "agent_health": agent_health}
 
     def readiness_payload(self) -> dict[str, str]:
         if self.lifecycle_state == "ready":

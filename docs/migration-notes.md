@@ -13,16 +13,21 @@ This repository was initialized by migrating the reusable kernel foundation out 
 - rollout policy helper
 - projection/detail/metrics foundation
 - local API / HTTP service / service runner foundation
-- minimal role files
-
-## Still pending
-
 - ingress adapter
-- OpenClaw agent invoke adapter
+- agent invoke adapter
 - result adapter
 - dispatcher
 - scheduler
 - recovery
-- role health
+- role health foundation
+- service health integration for role-level health snapshots
+- minimal role files
+- adapter loop tests
+- runtime loop tests
+
+## Still pending
+
 - persistent DB path in service runner
+- periodic recovery / health scheduling in service runner
+- real OpenClaw invoke / result wiring
 - production deployment scaffolding

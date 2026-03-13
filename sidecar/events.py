@@ -24,7 +24,10 @@ def append_event(
         (task_id, event_type, actor, action, summary, idempotency_key),
     )
     conn.commit()
-    return int(cur.lastrowid)
+    lastrowid = cur.lastrowid
+    if lastrowid is None:
+        raise RuntimeError("failed to retrieve lastrowid for appended event")
+    return int(lastrowid)
 
 
 def list_recent_events(
