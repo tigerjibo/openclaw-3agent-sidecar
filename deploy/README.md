@@ -12,6 +12,7 @@ This directory contains **sample deployment assets** for running `openclaw-3agen
 - `aws-staging-discovery.md` — step-by-step guide for discovering `HOOKS_TOKEN`, `PUBLIC_BASE_URL`, and `RUNTIME_INVOKE_URL` on the AWS host
 - `aws-staging-rollout-plan.md` — live-AWS rollout plan based on the confirmed current cloud topology
 - `aws-staging-execution-checklist.md` — copyable server-side execution sequence for the first staging rollout
+- `aws-role-specific-agent-staging-rollout-checklist.md` — step-by-step rollout checklist for enabling role-specific CLI agent routing on the current AWS staging host
 - `aws-staging-safe-deploy.md` — safety-first AWS deployment guide that avoids overwriting `/home/ubuntu/openclaw/.env`
 - `aws-direct-cutover-impact-and-runbook.md` — direct-replacement cutover guide for replacing the legacy `127.0.0.1:9600` runtime without pretending the old Feishu/timer platform is already migrated
 

@@ -10,6 +10,10 @@
 
 本次尝试**未能完成远端真实验证**，阻塞点来自环境访问条件，而不是本地代码或测试失败。
 
+如果 SSH 条件恢复后需要直接执行落地步骤，请配合：
+
+- `deploy/aws-role-specific-agent-staging-rollout-checklist.md`
+
 已确认：
 
 - 本地实现、定向测试和全量测试均已通过
