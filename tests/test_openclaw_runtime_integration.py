@@ -1027,6 +1027,63 @@ def test_runtime_result_endpoint_rejects_unknown_task_as_invalid_request() -> No
     assert "task not found" in body["message"]
 
 
+def test_runtime_result_endpoint_rejects_invoke_id_mismatch_as_invalid_request() -> None:
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+    ingress = IngressAdapter(app)
+    dispatcher = TaskDispatcher(app)
+    task_id = ingress.ingest(
+        {
+            "request_id": "req-runtime-result-invoke-mismatch-001",
+            "source": "openclaw",
+            "source_user_id": "user-runtime-result",
+            "entrypoint": "institutional_task",
+            "title": "invoke_id 不匹配的 result 应被拒绝",
+            "message": "验证 runtime result 的 invoke_id 合同。",
+            "task_type_hint": "engineering",
+        }
+    )["task_id"]
+    dispatch = dispatcher.dispatch_task(task_id)
+
+    try:
+        service.start()
+        assert service.base_url is not None
+        request = Request(
+            f"{service.base_url}/runtime/result",
+            data=json.dumps(
+                {
+                    "invoke_id": "inv:task-other:coordinator:v1:a1",
+                    "task_id": task_id,
+                    "role": "coordinator",
+                    "trace_id": dispatch["invoke_payload"]["trace_id"],
+                    "status": "succeeded",
+                    "output": {
+                        "goal": "不应写回",
+                        "acceptance_criteria": [],
+                        "risk_notes": [],
+                        "proposed_steps": [],
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
+        try:
+            urlopen(request, timeout=5)
+        except HTTPError as exc:
+            body = cast(dict[str, Any], json.loads(exc.read().decode("utf-8")))
+            status = exc.code
+        else:  # pragma: no cover
+            raise AssertionError("expected runtime result request to be rejected")
+    finally:
+        service.stop()
+
+    assert status == 400
+    assert body["code"] == "invalid_request"
+    assert "invoke_id mismatch" in body["message"]
+
+
 def test_openclaw_result_hook_rejects_trace_id_mismatch_as_invalid_request(monkeypatch) -> None:
     monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
     app = _build_app()
@@ -1087,6 +1144,68 @@ def test_openclaw_result_hook_rejects_trace_id_mismatch_as_invalid_request(monke
     assert status == 400
     assert body["code"] == "invalid_request"
     assert "trace_id mismatch" in body["message"]
+
+
+def test_openclaw_result_hook_rejects_role_mismatch_as_invalid_request(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+    ingress = IngressAdapter(app)
+    dispatcher = TaskDispatcher(app)
+    task_id = ingress.ingest(
+        {
+            "request_id": "req-openclaw-hook-result-role-mismatch-001",
+            "source": "openclaw",
+            "source_user_id": "user-openclaw-hook-result",
+            "entrypoint": "institutional_task",
+            "title": "role 不匹配的 result hook 应被拒绝",
+            "message": "验证 hook result 的 role 合同。",
+            "task_type_hint": "engineering",
+        }
+    )["task_id"]
+    dispatch = dispatcher.dispatch_task(task_id)
+
+    try:
+        service.start()
+        assert service.base_url is not None
+        request = Request(
+            f"{service.base_url}/hooks/openclaw/result",
+            data=json.dumps(
+                {
+                    "invoke_id": dispatch["invoke_payload"]["invoke_id"],
+                    "task_id": task_id,
+                    "role": "reviewer",
+                    "trace_id": dispatch["invoke_payload"]["trace_id"],
+                    "status": "succeeded",
+                    "output": {
+                        "review_decision": "approve",
+                        "review_comment": "不应写回",
+                        "reasons": [],
+                        "required_rework": [],
+                        "residual_risk": "low",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "X-OpenClaw-Hooks-Token": "hook-secret",
+            },
+            method="POST",
+        )
+        try:
+            urlopen(request, timeout=5)
+        except HTTPError as exc:
+            body = cast(dict[str, Any], json.loads(exc.read().decode("utf-8")))
+            status = exc.code
+        else:  # pragma: no cover
+            raise AssertionError("expected hook result request to be rejected")
+    finally:
+        service.stop()
+
+    assert status == 400
+    assert body["code"] == "invalid_request"
+    assert "role mismatch" in body["message"]
 
 
 def test_openclaw_result_hook_accepts_service_runner_config_token_without_env(monkeypatch) -> None:

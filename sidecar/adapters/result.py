@@ -42,6 +42,16 @@ class ResultAdapter:
                 raise ValueError(f"task not found after replay: {task_id}")
             return current
 
+        dispatch_status = str(task.get("dispatch_status") or "").strip()
+        if dispatch_status == "running":
+            last_invoke_id = str(task.get("last_invoke_id") or "").strip()
+            if last_invoke_id and invoke_id != last_invoke_id:
+                raise ValueError(f"invoke_id mismatch for task {task_id}: {invoke_id} != {last_invoke_id}")
+
+            dispatch_role = str(task.get("dispatch_role") or "").strip()
+            if dispatch_role and role != dispatch_role:
+                raise ValueError(f"role mismatch for task {task_id}: {role} != {dispatch_role}")
+
         try:
             with conn:
                 append_event(
