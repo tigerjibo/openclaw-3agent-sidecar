@@ -111,6 +111,10 @@ If you want one command instead of manual endpoint checks, run `openclaw-sidecar
 
 If you want to validate the **real** upstream instead of the fake demo runtime, run `openclaw-sidecar-remote-validate` and inspect `blocking_issues` in the JSON output.
 
+If the runtime bridge is using `openclaw-cli://...`, prefer inspecting `blocking_issue_groups`,
+`ops.integration.runtime_invoke.recent_submission`, and the CLI failure guidance in
+`docs/operations-runbook.md` before diving into raw host logs.
+
 ## Next hardening steps
 
 - rotate logs with the host process manager

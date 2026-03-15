@@ -229,7 +229,131 @@
 2. 保持 `OPENCLAW_HOOKS_TOKEN` 非空并与上游一致
 3. 再看 `GET /ops/summary` 中 `result_callback_ready` 是否转为 `true`
 
-## 7. 启动与部署 Checklist
+## 7. CLI bridge 常见故障排查
+
+当 `OPENCLAW_RUNTIME_INVOKE_URL=openclaw-cli://...` 时，值班排障建议优先按下面顺序看，避免一上来就翻整份日志：
+
+1. `openclaw-sidecar-remote-validate`
+
+   先看 `blocking_issue_groups`；如果要验证真实 submit，再跑 `--dispatch-sample`。
+
+1. `GET /ops/summary`
+
+   重点看 `integration.runtime_invoke.bridge`、`integration.runtime_invoke.recent_submission`、`integration.probe.runtime_invoke`。
+
+1. 最近一次 runtime submit 的结构化错误
+
+   重点看 `last_error_kind`、`last_error_message`、`last_recovery_action`。
+
+1. 最后再看进程级 stderr / stdout 摘要和上游日志
+
+### 场景 E：CLI not found
+
+表现：
+
+- `integration.probe.runtime_invoke.kind == configuration_error`
+- `message` 或 `last_error_message` 包含 `OpenClaw CLI not found`
+- `submission_recovery_action == block`
+
+含义：
+
+- sidecar 已尝试走 CLI bridge
+- 但目标主机上没有可执行的 `openclaw`，或 `OPENCLAW_RUNTIME_CLI_BIN` / PATH 指向错误
+
+优先处理：
+
+1. 在服务所在主机确认 `openclaw` 可执行文件存在且当前服务账号可访问
+2. 检查 PATH 或 `OPENCLAW_RUNTIME_CLI_BIN` 是否正确
+3. 重跑 `openclaw-sidecar-remote-validate`
+4. 如任务已被 block，修复后再人工解阻
+
+### 场景 F：callback 401
+
+表现：
+
+- `blocking_issue_groups.result_blockers` 包含 `dispatch_sample=callback_failed:client_error`
+- 最近一次 submit 的 `last_error_kind == client_error`
+- 错误详情中带 `stage=callback`、`http_status=401`
+
+含义：
+
+- CLI 本体已经跑完
+- 但上游回打 `POST /hooks/openclaw/result` 时，被 sidecar 鉴权拒绝
+
+优先处理：
+
+1. 检查 `OPENCLAW_HOOKS_TOKEN` 是否与上游使用的 token 一致
+2. 确认 callback URL 指向的是当前 sidecar 暴露的真实地址
+3. 再跑 `openclaw-sidecar-remote-validate --dispatch-sample`
+
+### 场景 G：callback timeout
+
+表现：
+
+- 最近一次 submit 的 `last_error_kind == timeout`
+- 且错误详情带 `stage=callback`
+- `result_callback_ready == true`，但 dispatch sample 仍失败
+
+含义：
+
+- sidecar 已把 callback contract 发给上游
+- 但回调链路在网络、反向代理或 sidecar 本地处理环节超时
+
+优先处理：
+
+1. 确认 `OPENCLAW_PUBLIC_BASE_URL` 对上游真实可达
+2. 检查反向代理、Nginx、负载均衡和防火墙
+3. 查看 sidecar 访问日志与上游 callback 请求日志
+4. 若确认只是偶发超时，再看 submit retry/backoff 是否正在收口重试
+
+### 场景 H：malformed role output
+
+表现：
+
+- `blocking_issue_groups.result_blockers` 包含 `dispatch_sample=result_failed:payload_error` 或 `schema_error`
+- `recent_submission.last_result_status == failed`
+- `last_error_kind` 可能为空，但 runtime response 里的 `result_error_kind` 已指明失败类型
+
+含义：
+
+- CLI 命令本身执行成功
+- 但 agent 返回的内容不是 sidecar 角色要求的 JSON，或 reviewer/coordinator/executor 的输出 schema 不合格
+
+优先处理：
+
+1. 先看 `result_error_kind`
+2. 再看 `result_error_message`
+3. 检查对应角色 prompt / 上游 agent 配置是否被改坏
+4. 若是 reviewer 决策字段非法，重点排查 `review_decision`
+
+### 场景 I：runtime stderr 非空 / exit code 非零
+
+表现：
+
+- `last_error_kind == runtime_error`
+- 最近一次 submit 或异常详情中带 `exit_code`
+- `stderr_excerpt` / `stdout_excerpt` 可见明确报错
+
+含义：
+
+- `openclaw agent --agent ... --json` 已真正启动
+- 但进程以非零退出码返回，或 stderr 明确说明了上游 runtime 执行失败
+
+优先处理：
+
+1. 先看 `exit_code`
+2. 再看 `stderr_excerpt`
+3. 若 stderr 为空，再看 `stdout_excerpt`
+4. 确认目标 agent id、权限、工作目录与依赖是否正常
+
+### 最小排障顺序（建议背下来）
+
+1. 先看 `remote_validate` 的 `blocking_issue_groups`
+2. 再看 `ops.summary.integration.runtime_invoke.recent_submission`
+3. 再看 `integration.probe.runtime_invoke`
+4. 最后再翻完整 sidecar / upstream 日志
+
+## 8. 启动与部署 Checklist
 
 ### 环境变量（必填）
 
@@ -324,7 +448,7 @@ openclaw-sidecar-remote-validate --dispatch-sample
 | readyz 返回 blocked | 检查集成环境变量和 gateway 可达性 |
 | hook 注册持续失败 | 检查 `OPENCLAW_GATEWAY_BASE_URL` / `OPENCLAW_HOOKS_TOKEN` / 网络 |
 
-## 8. 数据生命周期与 TTL 策略
+## 9. 数据生命周期与 TTL 策略
 
 ### 当前行为
 
@@ -349,7 +473,7 @@ AND updated_at < datetime('now', '-30 days');
 VACUUM;
 ```
 
-## 9. 本地 Smoke 验证流程
+## 10. 本地 Smoke 验证流程
 
 每次部署后，按以下步骤验证：
 
@@ -370,7 +494,7 @@ openclaw-sidecar-smoke
 openclaw-sidecar-remote-validate
 ```
 
-## 10. 值班口径建议
+## 11. 值班口径建议
 
 对外可简单说：
 
