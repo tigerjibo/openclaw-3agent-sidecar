@@ -66,10 +66,10 @@ In this report, `role -> agent` means the currently configured role-to-agent rou
 
 - command: SSH to `ubuntu@13.51.172.206` and list latest files under `main/sessions` and `sysarch/sessions`
 - latest `main` session files observed in the directory listing:
-	- `34ea94c1-2286-4a20-b51d-7eca565115ec.jsonl` modified at `2026-03-15 06:11:43.347543808 +0000`
-	- `5c34d037-1e41-44bf-ba51-81f611a30732.jsonl` modified at `2026-03-15 03:49:14.051722824 +0000`
+  - `34ea94c1-2286-4a20-b51d-7eca565115ec.jsonl` modified at `2026-03-15 06:11:43.347543808 +0000`
+  - `5c34d037-1e41-44bf-ba51-81f611a30732.jsonl` modified at `2026-03-15 03:49:14.051722824 +0000`
 - latest `sysarch` session file observed in the directory listing:
-	- `ca888661-cc28-4edb-b344-133add1320fd.jsonl` modified at `2026-03-15 03:11:04.431242031 +0000`
+  - `ca888661-cc28-4edb-b344-133add1320fd.jsonl` modified at `2026-03-15 03:11:04.431242031 +0000`
 - recent-session evidence is therefore current for both `main` and `sysarch` on the same UTC day as this inventory run
 
 ## Candidate inventory table
@@ -107,3 +107,20 @@ blocker -> upstream agent supply gap
 `upstream candidate supply / provisioning`
 
 The next subproject should remain outside role-mapping rollout. The current evidence package supports keeping reviewer-only validation as the live baseline while requesting or discovering a coordinator-grade and executor-grade upstream agent.
+
+## Verification Evidence
+
+- diagnostics checked for:
+  - `docs/plans/2026-03-15-phase0-agent-inventory-report.md`
+  - `docs/plans/2026-03-15-phase0-agent-inventory-plan.md`
+  - `docs/plans/2026-03-15-real-3-agent-target-plan.md`
+- consistency review completed across the three Phase 0 / target-plan docs; verdict: `APPROVED`
+- AWS evidence commands executed successfully for:
+  - sidecar `healthz`, `readyz`, and `ops/summary`
+  - host agent directory discovery
+  - recent session path discovery
+  - absolute-path CLI help inspection
+  - latest session modification time inspection
+- CLI inventory result: no supported agent-listing command was confirmed for `openclaw agent`; inventory remained evidence-backed through directories, session files, and prior validated runtime behavior
+- final decision recorded by this report: `NO-GO`
+- named blocker recorded by this report: `upstream agent supply gap`
