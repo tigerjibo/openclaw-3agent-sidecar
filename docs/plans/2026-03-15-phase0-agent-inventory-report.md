@@ -74,24 +74,36 @@ In this report, `role -> agent` means the currently configured role-to-agent rou
 
 ## Candidate inventory table
 
-Candidate inventory rows will be added after fresh AWS evidence collection confirms current agent visibility, recent sessions, and invokeability signals.
-
 | agent_id | source_of_truth | recent_session_seen | invokeable | suggested_role | confidence | notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| `main` | current runtime bridge config; host agent directory; same-day session files | yes | yes | fallback only | `high` | `ops/summary` reports `bridge.agent_id = main`, fallback agent id is `main`, and recent submissions succeeded through the runtime bridge. No evidence shows `main` should be treated as a dedicated coordinator or executor candidate. |
+| `sysarch` | configured reviewer mapping; host agent directory; recent session sample; prior reviewer-only staging validation | yes | yes | reviewer-oriented | `high` | `ops/summary` reports reviewer configured as `sysarch`; sampled session content includes `Role: reviewer`; prior real reviewer-only staging validation already succeeded. |
+
+No new candidate rows were added in this inventory run because no additional agent ids were discovered from host directories, recent session paths, or CLI inspection.
 
 ## Role classification notes
 
-Role classification notes will be added only after fresh evidence is collected and compared against the approved confidence rules.
+- `sysarch`: reviewer-oriented — prior reviewer-only staging validation already succeeded, the current runtime mapping still points reviewer to `sysarch`, and the sampled session content explicitly includes `Role: reviewer`.
+- `main`: fallback only — current runtime bridge and fallback configuration both point to `main`, but this inventory run found no evidence that `main` should be promoted to a dedicated `coordinator` or `executor` candidate.
+- no additional candidate agents were discovered in this inventory run, so there is no evidence-backed `coordinator-oriented` or `executor-oriented` candidate to classify.
 
 ## Confidence ratings
 
-Confidence ratings will be assigned as `high`, `medium`, or `low` based on the approved Phase 0 design thresholds defined in `docs/superpowers/specs/2026-03-15-phase0-agent-inventory-design.md`.
+- `sysarch` → `high` for `reviewer-oriented`, based on real reviewer-only staging validation, host visibility, same-day session evidence, and explicit reviewer-role content in the sampled session.
+- `main` → `high` for `fallback only`, based on current bridge configuration, successful recent submission evidence, host visibility, and same-day session evidence.
+- `coordinator` candidate → none at `high`
+- `executor` candidate → none at `high`
 
 ## Go / No-Go decision
 
-A binary decision will be recorded here after the inventory evidence and candidate classification are complete.
+reviewer -> sysarch (high, validated)
+coordinator -> none (no confirmed high-confidence candidate)
+executor -> none (no confirmed high-confidence candidate)
+decision -> NO-GO
+blocker -> upstream agent supply gap
 
 ## Recommended next action
 
-- if `GO`: `Phase 2 — coordinator expansion validation`
-- if `NO-GO`: `upstream candidate supply / provisioning`
+`upstream candidate supply / provisioning`
+
+The next subproject should remain outside role-mapping rollout. The current evidence package supports keeping reviewer-only validation as the live baseline while requesting or discovering a coordinator-grade and executor-grade upstream agent.
