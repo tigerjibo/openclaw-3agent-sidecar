@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 
 from sidecar.adapters.agent_invoke import AgentInvokeAdapter
 from sidecar.adapters.ingress import IngressAdapter
-from sidecar.adapters.openclaw_runtime import HttpOpenClawRuntimeBridge, OpenClawGatewayClient
+from sidecar.adapters.openclaw_runtime import CliOpenClawRuntimeBridge, HttpOpenClawRuntimeBridge, OpenClawGatewayClient
 from sidecar.api import TaskKernelApiApp
 from sidecar.events import list_recent_events
 from sidecar.http_service import LocalTaskKernelHttpService
@@ -434,6 +434,23 @@ def test_http_openclaw_runtime_bridge_probe_connectivity_reports_reachable() -> 
     }
     assert server.requests[0]["method"] == "OPTIONS"
     assert server.requests[0]["path"] == "/invoke"
+
+
+def test_cli_openclaw_runtime_bridge_probe_connectivity_reports_missing_binary_as_configuration_error(monkeypatch) -> None:
+    def fake_run(command: list[str], **kwargs: Any):
+        raise FileNotFoundError("missing openclaw")
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+
+    bridge = CliOpenClawRuntimeBridge("main", openclaw_bin="openclaw")
+
+    assert bridge.probe_connectivity() == {
+        "status": "unreachable",
+        "ok": False,
+        "status_code": None,
+        "kind": "configuration_error",
+        "message": "OpenClaw CLI not found: openclaw",
+    }
 
 
 def test_http_openclaw_runtime_bridge_probe_connectivity_treats_4xx_as_reachable() -> None:

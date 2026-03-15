@@ -24,6 +24,9 @@ class OpenClawRuntimeBridge(Protocol):
     def submit_invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    def describe(self) -> dict[str, Any]:
+        ...
+
 
 class CliOpenClawRuntimeBridge:
     def __init__(
@@ -79,8 +82,10 @@ class CliOpenClawRuntimeBridge:
             result_payload["status"] = "succeeded"
             result_payload["output"] = self._parse_role_output(role, assistant_text)
         except Exception as exc:
+            error_kind, error_message = self._classify_result_error(exc)
             result_payload["status"] = "failed"
-            result_payload["error"] = str(exc)
+            result_payload["error"] = error_message
+            result_payload["error_kind"] = error_kind
 
         callback_response = self._post_callback_result(callback_url, callback, result_payload)
         return {
@@ -91,7 +96,18 @@ class CliOpenClawRuntimeBridge:
                 "cli": cli_payload,
                 "callback": callback_response,
                 "result_status": result_payload["status"],
+                "result_error_kind": result_payload.get("error_kind"),
+                "result_error_message": result_payload.get("error"),
             },
+        }
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "kind": "openclaw_cli",
+            "agent_id": self.agent_id,
+            "openclaw_bin": self.openclaw_bin,
+            "timeout_sec": self.timeout_sec,
+            "result_callback_url": self.result_callback_url or None,
         }
 
     def probe_connectivity(self) -> dict[str, Any]:
@@ -109,7 +125,7 @@ class CliOpenClawRuntimeBridge:
                 "status": "unreachable",
                 "ok": False,
                 "status_code": None,
-                "kind": "probe_error",
+                "kind": "configuration_error",
                 "message": f"OpenClaw CLI not found: {self.openclaw_bin}",
             }
         except subprocess.TimeoutExpired:
@@ -127,7 +143,7 @@ class CliOpenClawRuntimeBridge:
                 "status": "unreachable",
                 "ok": False,
                 "status_code": completed.returncode,
-                "kind": "probe_error",
+                "kind": "runtime_error",
                 "message": details or "OpenClaw CLI help command failed.",
             }
 
@@ -408,6 +424,14 @@ class CliOpenClawRuntimeBridge:
         text = str(value).strip()
         return [text] if text else []
 
+    def _classify_result_error(self, exc: Exception) -> tuple[str, str]:
+        if isinstance(exc, OpenClawRequestError):
+            return exc.kind, str(exc)
+        message = str(exc)
+        if "unsupported review_decision" in message:
+            return "schema_error", message
+        return "payload_error", message
+
 
 class OpenClawGatewayClient:
     def __init__(self, gateway_base_url: str, *, hooks_token: str = "", timeout_sec: float = 10.0) -> None:
@@ -587,6 +611,14 @@ class HttpOpenClawRuntimeBridge:
                 kind="connection_error",
                 retryable=True,
             ) from exc
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "kind": "http",
+            "invoke_url": self.invoke_url,
+            "timeout_sec": self.timeout_sec,
+            "result_callback_url": self.result_callback_url or None,
+        }
 
     def _build_request_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         request_payload = dict(payload)

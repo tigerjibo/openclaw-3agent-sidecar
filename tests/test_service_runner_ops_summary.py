@@ -204,6 +204,7 @@ def test_ops_summary_payload_reports_partial_runtime_integration_without_public_
     assert payload["integration"]["runtime_invoke"] == {
         "invoke_url_configured": True,
         "bridge_available": True,
+        "bridge": {"kind": "FakeRuntimeBridge"},
         "result_callback_ready": False,
         "result_callback_url": None,
         "missing_requirements": ["public_base_url"],

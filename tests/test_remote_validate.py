@@ -64,3 +64,35 @@ def test_run_remote_validation_can_dispatch_sample_task() -> None:
     assert dispatch_sample is not None
     assert dispatch_sample["dispatch_result"]["dispatched"] is True
     assert dispatch_sample["task"]["dispatch_status"] == "running"
+
+
+class _FailedResultRuntime:
+    def probe_connectivity(self) -> dict[str, object]:
+        return {"status": "reachable", "ok": True, "status_code": 204, "kind": None, "message": None}
+
+    def submit_invoke(self, payload: dict[str, Any]) -> dict[str, object]:
+        return {
+            "accepted": True,
+            "status_code": 202,
+            "response": {
+                "result_status": "failed",
+                "result_error_kind": "payload_error",
+                "result_error_message": "JSON object not found",
+            },
+        }
+
+
+def test_run_remote_validation_reports_failed_dispatch_sample_result() -> None:
+    summary = run_remote_validation(
+        config={
+            "gateway_base_url": "",
+            "runtime_invoke_url": "openclaw-cli://main",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com",
+        },
+        runtime_bridge=_FailedResultRuntime(),
+        dispatch_sample=True,
+    )
+
+    assert summary["ok"] is False
+    assert "dispatch_sample=result_failed:payload_error" in summary["blocking_issues"]

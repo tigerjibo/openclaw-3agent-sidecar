@@ -205,6 +205,7 @@ class ServiceRunner:
         runtime_invoke = {
             "invoke_url_configured": runtime_invoke_url_configured,
             "bridge_available": runtime_invoke_url_configured,
+            "bridge": self._runtime_bridge_metadata(),
             "result_callback_ready": runtime_invoke_url_configured and not runtime_callback_missing_requirements,
             "result_callback_url": result_callback_url if runtime_invoke_url_configured and result_callback_url else None,
             "missing_requirements": runtime_callback_missing_requirements,
@@ -590,6 +591,11 @@ class ServiceRunner:
                     "action": "check_network",
                     "rationale": f"{label} probe reported network_error; check network, DNS, and firewall connectivity first.",
                 }
+            if kind == "configuration_error":
+                return {
+                    "action": "check_runtime_configuration",
+                    "rationale": f"{label} probe reported configuration_error; inspect CLI binary path, agent id, and sidecar runtime wiring.",
+                }
             if kind == "http_4xx":
                 return {
                     "action": "check_integration_config",
@@ -599,6 +605,11 @@ class ServiceRunner:
                 return {
                     "action": "check_upstream_health",
                     "rationale": f"{label} probe reported http_5xx; 优先检查上游服务健康与错误日志。",
+                }
+            if kind == "runtime_error":
+                return {
+                    "action": "inspect_runtime_bridge",
+                    "rationale": f"{label} probe reported runtime_error; inspect OpenClaw CLI availability, permissions, and upstream runtime stderr output.",
                 }
             if kind in {"probe_error", "probe_exception"}:
                 return {
@@ -835,3 +846,17 @@ class ServiceRunner:
         if not gateway_base_url:
             return None
         return OpenClawGatewayClient(gateway_base_url, hooks_token=str(self._config.get("hooks_token") or "").strip())
+
+    def _runtime_bridge_metadata(self) -> dict[str, Any] | None:
+        bridge = self._dispatcher.runtime_bridge
+        if bridge is None:
+            return None
+        describe = getattr(bridge, "describe", None)
+        if not callable(describe):
+            return {"kind": bridge.__class__.__name__}
+        try:
+            metadata = describe()
+        except Exception:
+            logger.exception("Failed to describe runtime bridge")
+            return {"kind": bridge.__class__.__name__, "describe_error": True}
+        return dict(metadata or {"kind": bridge.__class__.__name__})

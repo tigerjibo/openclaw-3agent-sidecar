@@ -126,7 +126,9 @@ def test_cli_runtime_bridge_reports_failed_result_when_agent_output_is_not_json(
     )
 
     assert result["accepted"] is True
+    assert result["response"]["result_error_kind"] == "payload_error"
     assert captured_request["body"]["status"] == "failed"
+    assert captured_request["body"]["error_kind"] == "payload_error"
     assert "JSON object not found" in captured_request["body"]["error"]
 
 
@@ -143,6 +145,14 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
 
     try:
         assert isinstance(runner._dispatcher.runtime_bridge, CliOpenClawRuntimeBridge)
-        assert runner.integration_payload()["runtime_invoke"]["invoke_url_configured"] is True
+        payload = runner.integration_payload()["runtime_invoke"]
+        assert payload["invoke_url_configured"] is True
+        assert payload["bridge"] == {
+            "kind": "openclaw_cli",
+            "agent_id": "main",
+            "openclaw_bin": "openclaw",
+            "timeout_sec": 120.0,
+            "result_callback_url": "http://127.0.0.1:9600/hooks/openclaw/result",
+        }
     finally:
         runner.stop()
