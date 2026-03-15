@@ -269,6 +269,30 @@ openclaw-sidecar-smoke
 
 它会启动一个临时 sidecar + fake runtime，对外打印 JSON 摘要，适合作为交接、演示或值班快速自检。
 
+若要验证**真实上游 / staging** 接线，而不是 fake runtime，可运行：
+
+```bash
+openclaw-sidecar-remote-validate
+```
+
+默认会读取项目根目录下的 `.env` 作为 `OPENCLAW_*` 配置来源；如果 shell 里已显式导出同名环境变量，则以 shell 值为准。
+
+如果希望在探测成功后再真正向远端 runtime 发起一次样例提交，可改用：
+
+```bash
+openclaw-sidecar-remote-validate --dispatch-sample
+```
+
+重点关注输出中的：
+
+- `ok`
+- `blocking_issues`
+- `ops.integration.status`
+- `ops.integration.runtime_invoke.result_callback_ready`
+- `ops.integration.probe`
+
+若 `ok=false`，优先按 `blocking_issues` 收口，不要直接把 staging 问题归咎于 sidecar 内核。
+
 ### 健康检查
 
 - `GET /healthz` — 返回 `{"status": "ok"}` 即为健康
@@ -332,6 +356,7 @@ VACUUM;
 pytest tests -q
 python -m compileall sidecar
 openclaw-sidecar-smoke
+openclaw-sidecar-remote-validate
 ```
 
 ## 10. 值班口径建议
