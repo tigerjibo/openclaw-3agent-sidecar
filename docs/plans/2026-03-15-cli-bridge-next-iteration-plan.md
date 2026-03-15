@@ -18,8 +18,22 @@
 - 已完成 CLI bridge 故障 runbook
 - 已完成 role-specific agent 配置项与真实按 role 路由
 - 已完成发布说明模板：`docs/plans/release-note-template.md`
+- 已完成 reviewer-only staging 基线固化：`deploy/aws-role-specific-agent-reviewer-only.env.example`
 
 本轮完成后，CLI bridge 已从“可接通”推进到“可值班、可治理、可按角色分流”，后续如继续推进，建议优先转向真实环境验证、发布流程固化与更细的生产观测。
+
+其中，当前 AWS staging 上最安全、且已被真实闭环验证的 role-specific rollout 起点为：
+
+- `OPENCLAW_RUNTIME_INVOKE_URL=openclaw-cli://main`
+- `OPENCLAW_COORDINATOR_AGENT_ID=`
+- `OPENCLAW_EXECUTOR_AGENT_ID=`
+- `OPENCLAW_REVIEWER_AGENT_ID=sysarch`
+
+对应基线与操作入口：
+
+- `deploy/aws-role-specific-agent-reviewer-only.env.example`
+- `deploy/aws-role-specific-agent-staging-rollout-checklist.md`
+- `docs/plans/2026-03-15-role-specific-agent-staging-validation.md`
 
 ---
 
