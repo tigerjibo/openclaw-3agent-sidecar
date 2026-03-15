@@ -5,7 +5,15 @@ This directory contains **sample deployment assets** for running `openclaw-3agen
 ## What exists now
 
 - `systemd/openclaw-sidecar.service` — Linux systemd example
+- `systemd/openclaw-sidecar-aws-staging.service` — AWS staging-oriented Linux service example using `/home/ubuntu/openclaw-3agent-sidecar`
 - `windows/openclaw-sidecar.ps1` — Windows PowerShell launcher example
+- `nginx/openclaw-sidecar-aws-staging.conf` — Nginx example for publishing the new sidecar at `/sidecar/` on the current AWS host
+- `aws-staging.env.example` — AWS staging candidate env template inferred from the historical OpenClaw runbook
+- `aws-staging-discovery.md` — step-by-step guide for discovering `HOOKS_TOKEN`, `PUBLIC_BASE_URL`, and `RUNTIME_INVOKE_URL` on the AWS host
+- `aws-staging-rollout-plan.md` — live-AWS rollout plan based on the confirmed current cloud topology
+- `aws-staging-execution-checklist.md` — copyable server-side execution sequence for the first staging rollout
+- `aws-staging-safe-deploy.md` — safety-first AWS deployment guide that avoids overwriting `/home/ubuntu/openclaw/.env`
+- `aws-direct-cutover-impact-and-runbook.md` — direct-replacement cutover guide for replacing the legacy `127.0.0.1:9600` runtime without pretending the old Feishu/timer platform is already migrated
 
 These files are intentionally lightweight and should be adapted for your environment.
 
@@ -49,6 +57,15 @@ For a quick end-to-end demo, you can also run:
 
 It launches a temporary sidecar + fake runtime pair, completes a real HTTP callback loop, and prints a JSON verification summary.
 
+For real staging / upstream validation, run:
+
+- `openclaw-sidecar-remote-validate`
+- optional: `openclaw-sidecar-remote-validate --dispatch-sample`
+
+`probe-only` mode checks health/readiness/ops plus upstream probe status using your configured `OPENCLAW_*` variables. `--dispatch-sample` additionally creates one sample task and attempts a real runtime submission, which is useful for staging verification but should be used intentionally because it talks to the real upstream runtime.
+
+By default the command also reads `.env` for `OPENCLAW_*` defaults, so local staging checks work even when the shell has not explicitly exported each variable yet.
+
 ## Suggested directory layout
 
 - `./data/sidecar.db` — SQLite persistence
@@ -91,6 +108,8 @@ After startup, verify the following in order:
 If `result_callback_ready=false`, the first fix is usually adding `OPENCLAW_PUBLIC_BASE_URL` (and keeping `OPENCLAW_HOOKS_TOKEN` non-empty).
 
 If you want one command instead of manual endpoint checks, run `openclaw-sidecar-smoke` and inspect the JSON summary it prints.
+
+If you want to validate the **real** upstream instead of the fake demo runtime, run `openclaw-sidecar-remote-validate` and inspect `blocking_issues` in the JSON output.
 
 ## Next hardening steps
 

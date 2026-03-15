@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw 3-Agent Sidecar (AWS staging)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/openclaw-3agent-sidecar
+EnvironmentFile=/home/ubuntu/openclaw-3agent-sidecar/.env
+ExecStart=/home/ubuntu/openclaw-3agent-sidecar/.venv/bin/openclaw-sidecar
+Restart=always
+RestartSec=3
+
+# Optional hardening knobs
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
