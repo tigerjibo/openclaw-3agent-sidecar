@@ -13,6 +13,16 @@ It is intentionally narrower than the broader rollout documents:
 Use this checklist only after the CLI bridge implementation is already present in
 `master` and you are ready to validate real role-based agent routing on the host.
 
+Validated on 2026-03-15 with the following minimal successful shape:
+
+- `OPENCLAW_RUNTIME_INVOKE_URL=openclaw-cli://main`
+- `OPENCLAW_REVIEWER_AGENT_ID=sysarch`
+- `OPENCLAW_COORDINATOR_AGENT_ID=`
+- `OPENCLAW_EXECUTOR_AGENT_ID=`
+
+This reviewer-only shape completed a real task closed loop on the AWS host and is
+the recommended first-pass rollout shape.
+
 ---
 
 ## 1. Goal
@@ -149,6 +159,8 @@ OPENCLAW_REVIEWER_AGENT_ID=<real-reviewer-agent-id>
 
 Use this when you want to prove role-specific routing works without changing the planner/executor path first.
 
+This option has already been verified successfully on the current AWS staging host.
+
 #### Option B — coordinator + reviewer first
 
 ```text
@@ -168,6 +180,12 @@ OPENCLAW_REVIEWER_AGENT_ID=<real-reviewer-agent-id>
 ```
 
 Use this only after you are confident the upstream agents are all present and stable.
+
+Do not assume any historical agent id is still valid. During the 2026-03-15 validation:
+
+- `main` was valid
+- `sysarch` was valid
+- `work` returned `Unknown agent id` and should not be used until re-confirmed
 
 ---
 
@@ -221,6 +239,14 @@ cd /home/ubuntu/openclaw-3agent-sidecar
 python -m sidecar.remote_validate
 ```
 
+If the formal staging service is already running on `127.0.0.1:9600`, avoid port conflicts by temporarily overriding:
+
+```bash
+OPENCLAW_PORT=0 \
+OPENCLAW_DB_PATH=/tmp/openclaw-sidecar-remote-validate.sqlite3 \
+python -m sidecar.remote_validate
+```
+
 Expected:
 
 - no fatal `config_blockers`
@@ -230,6 +256,14 @@ Expected:
 ### 7.2 Real dispatch sample second
 
 ```bash
+python -m sidecar.remote_validate --dispatch-sample
+```
+
+Likewise, when the formal service is already running:
+
+```bash
+OPENCLAW_PORT=0 \
+OPENCLAW_DB_PATH=/tmp/openclaw-sidecar-remote-validate.sqlite3 \
 python -m sidecar.remote_validate --dispatch-sample
 ```
 
@@ -269,6 +303,14 @@ Because the runtime bridge now records `selected_agent_id`, prefer this evidence
 2. `ops.summary.integration.runtime_invoke.recent_submission`
 3. `journalctl --user -u openclaw-sidecar.service`
 4. upstream CLI/runtime logs if needed
+
+On the 2026-03-15 reviewer-only validation, the strongest proof came from the upstream session log under:
+
+- `/home/ubuntu/.openclaw/agents/sysarch/sessions/*.jsonl`
+
+where the reviewer invoke id appeared as:
+
+- `inv:task-req-live-role-routing-check-001:reviewer:v5:a3`
 
 If you still need stronger proof, temporarily grep recent logs for the agent id you just enabled.
 

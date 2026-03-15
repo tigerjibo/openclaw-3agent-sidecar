@@ -8,29 +8,77 @@
 
 ## 当前结论
 
-本次尝试**未能完成远端真实验证**，阻塞点来自环境访问条件，而不是本地代码或测试失败。
-
-如果 SSH 条件恢复后需要直接执行落地步骤，请配合：
-
-- `deploy/aws-role-specific-agent-staging-rollout-checklist.md`
+本次验证**已完成 reviewer-only 的 staging 真实验证**。
 
 已确认：
 
 - 本地实现、定向测试和全量测试均已通过
-- 仓库最新相关提交已经推送到 `master`
-- 但当前工作站无法通过 SSH 登录 AWS 主机
-- 同时公网 `/sidecar/` 暴露面从当前工作站探测也出现超时
+- 已使用 SSH 登录 AWS 主机并同步远端部署副本到最新代码
+- 正式运行的 sidecar 服务在 `127.0.0.1:9600` 上保持健康
+- 远端 `ops/summary` 已显示：
+  - `role_agent_mapping.configured_agents.reviewer = sysarch`
+  - `fallback_agent_id = main`
+  - `routing_mode = role_specific`
+- 在正式运行的 sidecar 服务上创建真实任务后，任务成功按：
+  - `coordinator -> executor -> reviewer -> done`
+  闭环完成
+- 远端 OpenClaw 会话日志证明 reviewer 轮次实际进入了：
+  - `/home/ubuntu/.openclaw/agents/sysarch/sessions/...jsonl`
+  - 对应 invoke id：`inv:task-req-live-role-routing-check-001:reviewer:v5:a3`
 
 因此，当前状态应被标记为：
 
 - **代码已就绪**
-- **远端验证待访问恢复后执行**
+- **reviewer-only role-specific staging 验证已通过**
+- **若继续扩大 rollout，可再逐步启用 coordinator / executor 的独立 agent**
+
+配套执行步骤见：
+
+- `deploy/aws-role-specific-agent-staging-rollout-checklist.md`
+
+---
+
+## 本次真实验证结果摘要（SSH 恢复后）
+
+### 已验证通过的配置
+
+```text
+OPENCLAW_RUNTIME_INVOKE_URL=openclaw-cli://main
+OPENCLAW_COORDINATOR_AGENT_ID=
+OPENCLAW_EXECUTOR_AGENT_ID=
+OPENCLAW_REVIEWER_AGENT_ID=sysarch
+```
+
+### 已验证通过的 agent
+
+- `main` ✅
+- `sysarch` ✅
+
+### 当前不应直接使用的候选
+
+- `work` ❌
+  - 远端 CLI 返回：`Unknown agent id "work"`
+
+### 已确认的闭环行为
+
+- `coordinator` 继续走 fallback agent `main`
+- `executor` 继续走 fallback agent `main`
+- `reviewer` 成功切换到 `sysarch`
+- 真实任务最终进入 `done`
+
+### 本次额外发现
+
+- 远端部署目录 `/home/ubuntu/openclaw-3agent-sidecar` 是运行副本，不是 git 仓库；需要用归档/同步方式更新代码
+- 当正式 sidecar 已占用 `9600` 时，`python -m sidecar.remote_validate` 需要临时覆盖：
+  - `OPENCLAW_PORT=0`
+  - `OPENCLAW_DB_PATH=/tmp/openclaw-sidecar-remote-validate.sqlite3`
+  否则会因为端口冲突失败
 
 ---
 
 ## 已观测到的阻塞
 
-### 1. SSH 登录失败
+### 1. SSH 登录失败（首次尝试时）
 
 实际结果：
 
@@ -45,7 +93,7 @@
   - systemd 服务状态
   - 远端 `remote_validate` 结果
 
-### 2. 公网 sidecar 接口超时
+### 2. 公网 sidecar 接口超时（首次尝试时）
 
 从当前工作站对以下地址进行探测时，均返回超时：
 
@@ -70,6 +118,8 @@
 ---
 
 ## SSH 恢复后建议立即执行的最短验证
+
+> 本节已被本次 reviewer-only staging 验证实际走通，可继续作为后续 coordinator / executor rollout 的操作模板。
 
 ### 1. 确认远端代码版本
 
@@ -188,8 +238,6 @@ python -m sidecar.remote_validate --dispatch-sample
 
 ## 当前建议
 
-在 SSH 访问恢复之前，不要把“role-specific agent 已在 staging 真实验证通过”写进正式上线口径。
-
 当前最准确表述应为：
 
-> role-specific agent routing 已完成实现并通过本地全量验证；staging 真实验证因 SSH 访问与公网探测条件受阻，待远端访问恢复后执行。
+> role-specific agent routing 已在 AWS staging 完成 reviewer-only 真实验证：`reviewer -> sysarch` 已跑通，`coordinator/executor` 继续安全回退到 `main`。如需继续放量，建议按同样方式逐步验证 coordinator / executor 的独立 agent，而不是一次性全量切换。
