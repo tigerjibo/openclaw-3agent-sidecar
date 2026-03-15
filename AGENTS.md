@@ -68,16 +68,20 @@ Already implemented:
 - minimal runtime loop
 - recovery foundation
 - agent health foundation
+- persistent DB path in `sidecar/service_runner.py`
+- periodic recovery / health driving in `sidecar/service_runner.py`
 - service health integration with role health snapshot
 - local HTTP service foundation
+- CLI runtime bridge with role-specific agent routing foundation
+- reviewer-only AWS staging validation baseline
 - tests for adapter/runtime minimal loop
 
 Still pending:
 
-- persistent DB path in `sidecar/service_runner.py`
-- periodic recovery / health driving in `sidecar/service_runner.py`
 - real integration with official OpenClaw runtime
-- production deployment scaffolding
+- broader staged rollout beyond reviewer-only validation
+- production deployment automation and scaffolding hardening
+- document synchronization for current roadmap / handoff status
 
 ## Required reading order for any new agent
 
@@ -109,9 +113,9 @@ Run after meaningful code changes:
 
 The next recommended implementation target is:
 
-- persistent DB support in `sidecar/service_runner.py`
+- real integration wiring with the official OpenClaw runtime
 
 After that:
 
-- periodic recovery / health scheduling
-- real OpenClaw integration wiring
+- staged coordinator / executor role-specific validation
+- deployment automation / rollout hardening

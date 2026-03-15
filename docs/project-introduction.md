@@ -107,14 +107,15 @@
 
 当前还没有完成的关键能力包括：
 
-- `persistent DB path`
-  - 当前 runner 仍以最小实现为主，需要切到真正持久化路径
-- `recovery / health` 自动调度接线
-  - 当前已具备基础能力，但还未由 scheduler / service runner 周期性驱动
-- `production deployment scaffolding`
-  - 生产部署脚手架和运维规范还未完全落定
 - `真实 OpenClaw 对接`
-  - 当前已经有 adapter contract 和最小本地闭环，但还未完成与真实官方 OpenClaw runtime 的完整接线
+  - 当前已经有 CLI bridge、hook callback、staging 验证与最小闭环
+  - 但还未完成更稳定、更完整的官方 OpenClaw ingress / invoke / result 真实接线
+- `role-specific rollout 扩量`
+  - 当前 reviewer-only 形态已在 AWS staging 验证通过
+  - coordinator / executor 的独立 agent 仍应按小步放量继续验证
+- `production deployment scaffolding`
+  - 当前已有示例配置与运行文档，但远端部署仍偏手工流程
+  - 还需要更稳定的打包、同步、重启、健康检查与回滚约定
 
 ## 当前仓库结构
 
@@ -155,19 +156,20 @@
 - hook 注册失败限频与下次重试时间
 - 连续失败达到阈值时 health 降级与 readiness 阻断
 - 面向值班场景的运维 runbook
+- reviewer-only role-specific AWS staging 真实验证基线
 
 ## 推荐如何继续开发
 
 如果要继续推进，推荐优先顺序是：
 
-1. `service_runner.py` 持久化数据库路径
-2. scheduler / service runner 接入周期性 recovery / health 驱动
-3. 与真实 OpenClaw runtime 的 invoke/result 接线
-4. production deployment 与运维面板
+1. 统一文档与 handoff 对当前真实状态的描述
+2. 与真实 OpenClaw runtime 的 ingress / invoke / result 接线补强
+3. 继续按角色逐步推进 coordinator / executor 的 staging 验证
+4. production deployment 自动化与运维脚手架硬化
 5. 轻量演示面与活动流可观测增强
 
 如果是接手值班或上线准备，而不是继续开发，请先阅读 `docs/operations-runbook.md`。
 
 ## 一句话总结
 
-> `openclaw-3agent-sidecar` 是一个独立于官方 OpenClaw 源码之外的 3-agent 制度化任务编排侧车。对外可讲成“明制小内阁”，对内则坚持 `coordinator / executor / reviewer` 的清晰抽象；当前已具备 task kernel、adapter、recovery、agent health 与基础 runtime 闭环，可继续向持久化、自动恢复与真实 OpenClaw 接线演进。
+> `openclaw-3agent-sidecar` 是一个独立于官方 OpenClaw 源码之外的 3-agent 制度化任务编排侧车。对外可讲成“明制小内阁”，对内则坚持 `coordinator / executor / reviewer` 的清晰抽象；当前已具备 task kernel、adapter、recovery、agent health、持久化 runner、周期 maintenance，以及 reviewer-only AWS staging 基线，可继续向真实 OpenClaw 接线、分角色放量与部署自动化演进。

@@ -75,33 +75,34 @@
 
 ### P0 仍待补齐
 
-1. `service_runner.py` 持久化改造
-   - 从 `:memory:` 过渡到真实 DB 路径
-   - 保障重启后状态可恢复
+1. 与真实 OpenClaw runtime 的接线补强
+   - 真实 ingress 来源对接
+   - invoke / result 契约进一步收紧
+   - 从“CLI bridge 已验证可用”推进到“完整实接线更稳定”
 
-2. runtime 自动驱动补齐
-   - scheduler / service runner 定期调用 recovery
-   - health / readiness / metrics 联动更完整
-   - 为 restart / stale / blocked 场景补更强测试
+2. role-specific rollout 扩量
+   - reviewer-only 形态已完成 AWS staging 真实验证
+   - coordinator / executor 仍需逐步放量验证
+   - 保持 fallback 到 `main` 的安全形态
 
 ### P1 待完成
 
-1. 与真实 OpenClaw runtime 的接线
-   - 真实 ingress 来源对接
-   - 真正的 agent invoke 路由
-   - result 回写链路落地
-
-2. 业务入口闭环
+1. 业务入口闭环
    - Feishu / 指定制度化入口
    - 回传格式与人工动作入口
 
+2. 生产部署自动化与运维硬化
+   - 部署同步 / 重启 / 健康检查流程自动化
+   - 回滚与值班操作约定
+   - 运维文档与 runbook 继续补强
+
 ### P2 待完成
 
-1. 生产化与运维
-   - 部署脚手架
+1. 更完整的生产化与运维
    - 配置管理
    - 指标与异常面板
    - 运行 SOP
+   - 更细的告警与值班面
 
 ## 5. 方案概述
 
@@ -129,9 +130,9 @@
 
 建议动作：
 
-- 改造 `service_runner.py` 使用持久化 DB
-- 让 scheduler / service runner 周期性驱动 recovery / health
-- 为 runtime 补充更多异常/重启/停滞测试
+- 持续补强 recovery / restart / stale / timeout 回归测试
+- 统一文档、handoff、runbook 与当前真实实现状态
+- 收紧 maintenance / integration 的可观测语义
 
 ### 阶段二：对接真实 OpenClaw
 
@@ -164,15 +165,15 @@
 
 ### P0（建议立即做）
 
-- persistent DB runner
-- recovery / health 自动调度接线
-- runtime 相关测试补强
+- 真实 OpenClaw 接线补强
+- role-specific staging 扩量验证
+- 文档 / handoff 状态纠偏
 
 ### P1（P0 稳住后做）
 
-- 真实 OpenClaw 接线
 - Feishu / 制度化入口联通
 - 人工动作权限与回传
+- 部署自动化与回滚约定
 
 ### P2（上线前逐步补齐）
 
@@ -185,11 +186,11 @@
 
 如果从现在开始，在新仓继续开发，推荐按下面顺序推进：
 
-1. `sidecar/service_runner.py` 持久化数据库路径
-2. scheduler / service runner 接入 recovery / health 的周期性驱动
-3. `tests/` 中新增 restart / stale / blocked / timeout 回归测试
-4. `sidecar/adapters/` 与真实 OpenClaw 的对接层
-5. 文档与部署说明同步完善
+1. 文档与 handoff 状态纠偏
+2. `sidecar/adapters/` 与真实 OpenClaw 的对接层
+3. `tests/` 中补强真实接线、callback 幂等、延迟回调等回归测试
+4. staging 上继续做 coordinator / executor 的 role-specific 验证
+5. 部署自动化与回滚说明同步完善
 6. 轻量活动流 / 演示面增强
 
 ## 9. 不建议做的事情
@@ -203,6 +204,6 @@
 
 ## 10. 当前阶段结论
 
-> 当前 `openclaw-3agent-sidecar` 已经完成了“独立仓初始化 + task kernel + adapter 最小闭环 + recovery / health 在内的 runtime 基础闭环”，下一阶段的核心任务不是重写角色故事，而是把持久化、自动恢复调度和真实 OpenClaw 接线做实，同时在对外层使用“明制小内阁”统一传播口径。
+> 当前 `openclaw-3agent-sidecar` 已经完成了“独立仓初始化 + task kernel + adapter 最小闭环 + recovery / health 在内的 runtime 基础闭环”，并已补上持久化 runner、周期 maintenance 与 reviewer-only AWS staging 基线。下一阶段的核心任务不是重写角色故事，而是把真实 OpenClaw 接线、role-specific 扩量验证和部署自动化做实，同时在对外层使用“明制小内阁”统一传播口径。
 
 补充说明：当前仓库也已经具备第一批面向真实上游接线的运维语义，包括 hook registration 状态、自动重试窗口、连续失败阈值告警，以及 readiness 阻断能力。

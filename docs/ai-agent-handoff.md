@@ -101,9 +101,9 @@
 
 高优先级未完成项：
 
-1. `sidecar/service_runner.py` 使用持久化 DB 路径
-2. scheduler / service runner 周期性驱动 recovery / health
-3. 与真实 OpenClaw runtime 的真实接线
+1. 与真实 OpenClaw runtime 的真实 ingress / invoke / result 接线
+2. 在 AWS staging 上继续推进 coordinator / executor 的 role-specific 验证
+3. 生产部署自动化与运维脚手架硬化
 
 ## 你应该先读哪些文件
 
@@ -132,14 +132,20 @@
 
 因此接手时不要把项目当成“纯文档仓”；它已经有最小可运行闭环。
 
+并且当前已经额外验证通过：
+
+- `service_runner.py` 的持久化 DB 路径
+- maintenance 驱动的 recovery / health / integration probe 主流程
+- reviewer-only role-specific AWS staging 基线（`reviewer -> sysarch`，其余角色回退 `main`）
+
 ## 你接下来应该优先做什么
 
 推荐顺序：
 
-1. 改造 `service_runner.py` 使用持久化 DB
-2. 为 recovery / restart / stale / timeout 场景补更强测试
-3. 让 scheduler / service runner 自动驱动 recovery / health
-4. 再开始对接真实 OpenClaw runtime
+1. 修正文档 / handoff 中仍然过期的“未完成项”表述
+2. 补强与真实 OpenClaw runtime 的 ingress / invoke / result 接线
+3. 继续按角色小步推进 staging 验证
+4. 完成部署自动化、回滚与运维硬化
 
 ## 重要开发约束
 
@@ -172,5 +178,4 @@ sidecar 的主实现今后以新仓为准。
 
 如果你是一个新 AI agent，接手后可以从下面这句开始：
 
-> 请在 `D:\code\openclaw-3agent-sidecar` 中继续开发，不要修改 `M:\code\openclaw` 里的 sidecar 逻辑。先阅读 `README.md`、`docs/project-introduction.md`、`docs/product-requirements-roadmap.md`、`docs/architecture.md`、`docs/migration-notes.md`，然后以 TDD 方式优先实现 `sidecar/runtime/recovery.py`，补相应测试，并在完成后运行 `pytest tests -q` 与 `python -m compileall sidecar` 验证。
-> 请在 `D:\code\openclaw-3agent-sidecar` 中继续开发，不要修改 `M:\code\openclaw` 里的 sidecar 逻辑。先阅读 `README.md`、`docs/project-introduction.md`、`docs/product-requirements-roadmap.md`、`docs/architecture.md`、`docs/migration-notes.md`，理解该项目对外可使用“明制小内阁”叙事、对内仍坚持 `coordinator / executor / reviewer`，然后以 TDD 方式优先推进 `sidecar/service_runner.py` 的持久化 DB 路径与后续 recovery / health 自动驱动。
+> 请在 `D:\code\openclaw-3agent-sidecar` 中继续开发，不要修改 `M:\code\openclaw` 里的 sidecar 逻辑。先阅读 `README.md`、`docs/project-introduction.md`、`docs/product-requirements-roadmap.md`、`docs/architecture.md`、`docs/migration-notes.md`，理解该项目对外可使用“明制小内阁”叙事、对内仍坚持 `coordinator / executor / reviewer`，然后优先修正文档中已过期的未完成项表述，并以 TDD 方式推进真实 OpenClaw runtime 的 ingress / invoke / result 接线、以及后续 coordinator / executor 的 role-specific staging 验证。

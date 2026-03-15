@@ -27,7 +27,7 @@ This repository was initialized by migrating the reusable kernel foundation out 
 
 ## Still pending
 
-- persistent DB path in service runner
-- periodic recovery / health scheduling in service runner
 - real OpenClaw invoke / result wiring
-- production deployment scaffolding
+- broader staged role-specific rollout beyond reviewer-only validation
+- production deployment automation / scaffolding hardening
+- roadmap and handoff document synchronization with current verified state
