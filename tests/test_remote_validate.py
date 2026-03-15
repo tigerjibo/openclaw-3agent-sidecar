@@ -22,11 +22,25 @@ class _ReachableRuntime:
         return {"accepted": True, "status_code": 202, "response": payload}
 
 
+class _UnreachableRuntime:
+    def probe_connectivity(self) -> dict[str, object]:
+        return {"status": "unreachable", "ok": False, "status_code": None, "kind": "network_error", "message": "runtime unreachable"}
+
+    def submit_invoke(self, payload: dict[str, Any]) -> dict[str, object]:
+        raise AssertionError("submit_invoke should not be called in probe-only validation")
+
+
 def test_run_remote_validation_reports_missing_remote_wiring() -> None:
     summary = run_remote_validation(config={"gateway_base_url": "", "runtime_invoke_url": "", "hooks_token": "", "public_base_url": ""})
 
     assert summary["ok"] is False
     assert "integration=local_only" in summary["blocking_issues"]
+    assert summary["blocking_issue_groups"] == {
+        "config_blockers": ["integration=local_only"],
+        "probe_blockers": [],
+        "dispatch_blockers": [],
+        "result_blockers": [],
+    }
     assert summary["ops"]["ops"]["integration"]["status"] == "local_only"
 
 
@@ -43,8 +57,30 @@ def test_run_remote_validation_reports_runtime_invoke_ready_when_remote_wiring_i
 
     assert summary["ok"] is True
     assert summary["blocking_issues"] == []
+    assert summary["blocking_issue_groups"] == {
+        "config_blockers": [],
+        "probe_blockers": [],
+        "dispatch_blockers": [],
+        "result_blockers": [],
+    }
     assert summary["ops"]["ops"]["integration"]["status"] == "runtime_invoke_ready"
     assert summary["ops"]["ops"]["integration"]["runtime_invoke"]["result_callback_ready"] is True
+
+
+def test_run_remote_validation_groups_probe_blockers_when_runtime_is_unreachable() -> None:
+    summary = run_remote_validation(
+        config={
+            "gateway_base_url": "",
+            "runtime_invoke_url": "openclaw-cli://main",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com",
+        },
+        runtime_bridge=_UnreachableRuntime(),
+    )
+
+    assert summary["ok"] is False
+    assert summary["blocking_issue_groups"]["probe_blockers"] == ["runtime_invoke_probe=unreachable"]
+    assert "runtime_invoke_probe=unreachable" in summary["blocking_issues"]
 
 
 def test_run_remote_validation_can_dispatch_sample_task() -> None:
@@ -97,6 +133,7 @@ def test_run_remote_validation_reports_failed_dispatch_sample_result() -> None:
 
     assert summary["ok"] is False
     assert "dispatch_sample=result_failed:payload_error" in summary["blocking_issues"]
+    assert summary["blocking_issue_groups"]["result_blockers"] == ["dispatch_sample=result_failed:payload_error"]
 
 
 class _FailedCallbackRuntime:
@@ -133,3 +170,5 @@ def test_run_remote_validation_reports_failed_dispatch_callback_stage() -> None:
     assert summary["ok"] is False
     assert "dispatch_sample=submit_failed" in summary["blocking_issues"]
     assert "dispatch_sample=callback_failed:client_error" in summary["blocking_issues"]
+    assert summary["blocking_issue_groups"]["dispatch_blockers"] == ["dispatch_sample=submit_failed"]
+    assert summary["blocking_issue_groups"]["result_blockers"] == ["dispatch_sample=callback_failed:client_error"]

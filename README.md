@@ -189,6 +189,14 @@ Remote integration validation command:
 
 This command uses the current `OPENCLAW_*` environment to validate real upstream wiring. By default it runs **probe-only** checks and reports blocking issues such as missing callback configuration, unreachable upstream endpoints, or incomplete hook registration. Add `--dispatch-sample` when you want it to create one sample task and attempt a real runtime submission.
 
+The JSON output keeps the original flat `blocking_issues` list for compatibility,
+and also adds `blocking_issue_groups` so operators can read blockers by layer:
+
+- `config_blockers`
+- `probe_blockers`
+- `dispatch_blockers`
+- `result_blockers`
+
 If `.env` exists, the command will also preload `OPENCLAW_*` defaults from that file unless the same variables are already exported in the shell.
 
 ## Environment
@@ -229,9 +237,9 @@ Retryable runtime submission failures are also governed by two lightweight
 controls:
 
 - `OPENCLAW_RUNTIME_SUBMIT_RETRY_DELAY_SEC` — minimum wait before recovery
-	releases a retryable `submit_failed` task back to `idle`
+  releases a retryable `submit_failed` task back to `idle`
 - `OPENCLAW_RUNTIME_SUBMIT_MAX_ATTEMPTS` — maximum total dispatch attempts
-	before recovery blocks the task for manual investigation instead of retrying forever
+  before recovery blocks the task for manual investigation instead of retrying forever
 
 When `openclaw-cli://<agent_id>` is used, the sidecar invokes `openclaw agent --agent <agent_id> --json`, asks the agent to return one strict JSON object for the current sidecar role, and then posts the structured result back into the existing result callback contract.
 

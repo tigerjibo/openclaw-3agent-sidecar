@@ -287,11 +287,22 @@ openclaw-sidecar-remote-validate --dispatch-sample
 
 - `ok`
 - `blocking_issues`
+- `blocking_issue_groups.config_blockers`
+- `blocking_issue_groups.probe_blockers`
+- `blocking_issue_groups.dispatch_blockers`
+- `blocking_issue_groups.result_blockers`
 - `ops.integration.status`
 - `ops.integration.runtime_invoke.result_callback_ready`
 - `ops.integration.probe`
 
 若 `ok=false`，优先按 `blocking_issues` 收口，不要直接把 staging 问题归咎于 sidecar 内核。
+
+推荐值班顺序：
+
+1. 先看 `config_blockers`，确认是不是接线没配全
+2. 再看 `probe_blockers`，判断是不是 upstream 根本不可达
+3. 如果用了 `--dispatch-sample`，再看 `dispatch_blockers`
+4. 最后看 `result_blockers`，区分 callback 失败、role 输出失败等“活发出去了但没闭环”的问题
 
 ### 健康检查
 

@@ -63,11 +63,18 @@ def run_remote_validation(
         if dispatch_sample:
             dispatch_payload = _dispatch_sample_task(runner)
 
-        blocking_issues = _collect_blocking_issues(health=health, readiness=readiness, ops=ops, dispatch_payload=dispatch_payload)
+        blocking_issue_groups = _collect_blocking_issue_groups(
+            health=health,
+            readiness=readiness,
+            ops=ops,
+            dispatch_payload=dispatch_payload,
+        )
+        blocking_issues = _flatten_blocking_issue_groups(blocking_issue_groups)
         summary = {
             "ok": len(blocking_issues) == 0,
             "mode": "dispatch_sample" if dispatch_sample else "probe_only",
             "blocking_issues": blocking_issues,
+            "blocking_issue_groups": blocking_issue_groups,
             "health": health,
             "readiness": readiness,
             "ops": ops,
@@ -106,58 +113,73 @@ def _dispatch_sample_task(runner: ServiceRunner) -> dict[str, Any]:
     }
 
 
-def _collect_blocking_issues(
+def _collect_blocking_issue_groups(
     *,
     health: dict[str, Any],
     readiness: dict[str, Any],
     ops: dict[str, Any],
     dispatch_payload: dict[str, Any] | None,
-) -> list[str]:
-    issues: list[str] = []
+) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {
+        "config_blockers": [],
+        "probe_blockers": [],
+        "dispatch_blockers": [],
+        "result_blockers": [],
+    }
     if str(health.get("status") or "") in {"degraded", "failed"}:
-        issues.append(f"health={health.get('status')}")
+        groups["config_blockers"].append(f"health={health.get('status')}")
     if str(readiness.get("status") or "") != "ready":
-        issues.append(f"readiness={readiness.get('status')}:{readiness.get('reason')}")
+        groups["config_blockers"].append(f"readiness={readiness.get('status')}:{readiness.get('reason')}")
 
     ops_payload = cast(dict[str, Any], ops.get("ops") or {})
     integration = cast(dict[str, Any], ops_payload.get("integration") or {})
     integration_status = str(integration.get("status") or "")
     if integration_status in {"local_only", "partially_configured"}:
-        issues.append(f"integration={integration_status}")
+        groups["config_blockers"].append(f"integration={integration_status}")
 
     gateway = cast(dict[str, Any], integration.get("gateway") or {})
     if gateway.get("hooks_enabled") and not gateway.get("hook_registration_ready"):
-        issues.append(f"gateway_hook_registration={cast(dict[str, Any], gateway.get('hook_registration') or {}).get('status')}")
+        groups["config_blockers"].append(
+            f"gateway_hook_registration={cast(dict[str, Any], gateway.get('hook_registration') or {}).get('status')}"
+        )
 
     runtime_invoke = cast(dict[str, Any], integration.get("runtime_invoke") or {})
     if runtime_invoke.get("invoke_url_configured") and not runtime_invoke.get("result_callback_ready"):
         missing = ",".join(str(item) for item in (runtime_invoke.get("missing_requirements") or []))
-        issues.append(f"runtime_callback_missing={missing or 'unknown'}")
+        groups["config_blockers"].append(f"runtime_callback_missing={missing or 'unknown'}")
 
     probe = cast(dict[str, Any], integration.get("probe") or {})
     for component_name in ("gateway", "runtime_invoke"):
         component = cast(dict[str, Any], probe.get(component_name) or {})
         status = str(component.get("status") or "")
         if status == "unreachable":
-            issues.append(f"{component_name}_probe=unreachable")
+            groups["probe_blockers"].append(f"{component_name}_probe=unreachable")
 
     if dispatch_payload is not None:
         dispatch_result = cast(dict[str, Any], dispatch_payload.get("dispatch_result") or {})
         if not bool(dispatch_result.get("dispatched")):
-            issues.append(f"dispatch_sample={dispatch_result.get('reason') or 'failed'}")
+            groups["dispatch_blockers"].append(f"dispatch_sample={dispatch_result.get('reason') or 'failed'}")
             error_details = cast(dict[str, Any], dispatch_result.get("submission_error_details") or {})
             if str(error_details.get("stage") or "") == "callback":
-                issues.append(
+                groups["result_blockers"].append(
                     f"dispatch_sample=callback_failed:{str(dispatch_result.get('submission_error_kind') or 'unknown')}"
                 )
         runtime_submission = cast(dict[str, Any], dispatch_result.get("runtime_submission") or {})
         runtime_response = cast(dict[str, Any], runtime_submission.get("response") or {})
         if str(runtime_response.get("result_status") or "") == "failed":
-            issues.append(
+            groups["result_blockers"].append(
                 f"dispatch_sample=result_failed:{str(runtime_response.get('result_error_kind') or 'unknown')}"
             )
 
-    return issues
+    return groups
+
+
+def _flatten_blocking_issue_groups(groups: dict[str, list[str]]) -> list[str]:
+    ordered_keys = ("config_blockers", "probe_blockers", "dispatch_blockers", "result_blockers")
+    flattened: list[str] = []
+    for key in ordered_keys:
+        flattened.extend(str(item) for item in groups.get(key, []))
+    return flattened
 
 
 def _get_json(url: str) -> dict[str, Any]:
