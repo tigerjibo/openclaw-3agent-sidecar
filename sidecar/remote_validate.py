@@ -145,6 +145,11 @@ def _collect_blocking_issues(
         dispatch_result = cast(dict[str, Any], dispatch_payload.get("dispatch_result") or {})
         if not bool(dispatch_result.get("dispatched")):
             issues.append(f"dispatch_sample={dispatch_result.get('reason') or 'failed'}")
+            error_details = cast(dict[str, Any], dispatch_result.get("submission_error_details") or {})
+            if str(error_details.get("stage") or "") == "callback":
+                issues.append(
+                    f"dispatch_sample=callback_failed:{str(dispatch_result.get('submission_error_kind') or 'unknown')}"
+                )
         runtime_submission = cast(dict[str, Any], dispatch_result.get("runtime_submission") or {})
         runtime_response = cast(dict[str, Any], runtime_submission.get("response") or {})
         if str(runtime_response.get("result_status") or "") == "failed":

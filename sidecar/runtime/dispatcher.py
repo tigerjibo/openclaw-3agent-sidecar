@@ -74,6 +74,7 @@ class TaskDispatcher:
         submission_error_kind = None
         submission_status_code = None
         submission_retryable = False
+        submission_error_details = None
         if self.runtime_bridge is not None:
             try:
                 runtime_submission = self.runtime_bridge.submit_invoke(invoke_payload)
@@ -83,6 +84,7 @@ class TaskDispatcher:
                 submission_error_kind = exc.kind
                 submission_status_code = exc.status_code
                 submission_retryable = bool(exc.retryable)
+                submission_error_details = dict(exc.details or {})
             except Exception as exc:
                 logger.warning("Runtime submission failed for task=%s trace=%s msg=%s", task_id, trace_id, exc)
                 submission_error = str(exc)
@@ -142,6 +144,7 @@ class TaskDispatcher:
                     "submission_error_kind": submission_error_kind,
                     "submission_status_code": submission_status_code,
                     "submission_retryable": submission_retryable,
+                    "submission_error_details": submission_error_details,
                 }
 
         logger.info(
@@ -159,6 +162,7 @@ class TaskDispatcher:
             "submission_error_kind": submission_error_kind,
             "submission_status_code": submission_status_code,
             "submission_retryable": submission_retryable,
+            "submission_error_details": submission_error_details,
             "submission_state": "late_failure_ignored",
         }
 

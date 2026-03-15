@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sidecar.adapters.openclaw_runtime import OpenClawRequestError
 from sidecar.remote_validate import run_remote_validation
 
 
@@ -96,3 +97,39 @@ def test_run_remote_validation_reports_failed_dispatch_sample_result() -> None:
 
     assert summary["ok"] is False
     assert "dispatch_sample=result_failed:payload_error" in summary["blocking_issues"]
+
+
+class _FailedCallbackRuntime:
+    def probe_connectivity(self) -> dict[str, object]:
+        return {"status": "reachable", "ok": True, "status_code": 204, "kind": None, "message": None}
+
+    def submit_invoke(self, payload: dict[str, Any]) -> dict[str, object]:
+        raise OpenClawRequestError(
+            "OpenClaw CLI result callback rejected with HTTP 401: {\"code\":\"unauthorized\"}",
+            kind="client_error",
+            status_code=401,
+            retryable=False,
+            details={
+                "stage": "callback",
+                "callback_url": "http://sidecar.local/hooks/openclaw/result",
+                "http_status": 401,
+                "response_body_excerpt": '{"code":"unauthorized"}',
+            },
+        )
+
+
+def test_run_remote_validation_reports_failed_dispatch_callback_stage() -> None:
+    summary = run_remote_validation(
+        config={
+            "gateway_base_url": "",
+            "runtime_invoke_url": "openclaw-cli://main",
+            "hooks_token": "hook-secret",
+            "public_base_url": "https://sidecar.example.com",
+        },
+        runtime_bridge=_FailedCallbackRuntime(),
+        dispatch_sample=True,
+    )
+
+    assert summary["ok"] is False
+    assert "dispatch_sample=submit_failed" in summary["blocking_issues"]
+    assert "dispatch_sample=callback_failed:client_error" in summary["blocking_issues"]

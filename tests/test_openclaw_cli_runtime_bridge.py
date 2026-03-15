@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import io
 import subprocess
 from typing import Any
+from urllib.error import HTTPError
 
 import pytest
 
@@ -189,6 +191,120 @@ def test_cli_runtime_bridge_surfaces_process_summary_when_agent_command_fails(mo
         "stderr_excerpt": "stderr line that explains why the CLI invocation failed",
         "stdout_truncated": False,
         "stderr_truncated": False,
+    }
+
+
+def test_cli_runtime_bridge_surfaces_callback_http_error_details(monkeypatch) -> None:
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        payload = {
+            "runId": "run-004",
+            "status": "ok",
+            "summary": "completed",
+            "result": {"payloads": [{"text": json.dumps({"goal": "ok", "acceptance_criteria": [], "risk_notes": [], "proposed_steps": []}, ensure_ascii=False)}]},
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr="")
+
+    def fake_urlopen(request, timeout: float = 0):
+        raise HTTPError(
+            request.full_url,
+            401,
+            "Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"code":"unauthorized"}'),
+        )
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.urlopen", fake_urlopen)
+
+    bridge = CliOpenClawRuntimeBridge("main", openclaw_bin="openclaw")
+
+    with pytest.raises(OpenClawRequestError) as exc_info:
+        bridge.submit_invoke(
+            {
+                "invoke_id": "inv-004",
+                "task_id": "task-004",
+                "role": "coordinator",
+                "trace_id": "trace-004",
+                "goal": "验证 callback 401",
+                "input": {"title": "callback 错误", "message": "请返回 401。"},
+                "constraints": {"structured_output_required": True},
+                "callbacks": {
+                    "result": {
+                        "url": "http://sidecar.local/hooks/openclaw/result",
+                        "headers": {"X-OpenClaw-Hooks-Token": "token-004"},
+                    }
+                },
+            }
+        )
+
+    exc = exc_info.value
+    assert exc.kind == "client_error"
+    assert exc.status_code == 401
+    assert exc.details == {
+        "stage": "callback",
+        "callback_url": "http://sidecar.local/hooks/openclaw/result",
+        "http_status": 401,
+        "response_body_excerpt": '{"code":"unauthorized"}',
+    }
+
+
+def test_cli_runtime_bridge_reports_callback_payload_error_for_non_json_response(monkeypatch) -> None:
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        payload = {
+            "runId": "run-005",
+            "status": "ok",
+            "summary": "completed",
+            "result": {"payloads": [{"text": json.dumps({"goal": "ok", "acceptance_criteria": [], "risk_notes": [], "proposed_steps": []}, ensure_ascii=False)}]},
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr="")
+
+    class _NonJsonResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return b"definitely not json"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def fake_urlopen(request, timeout: float = 0):
+        return _NonJsonResponse()
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.urlopen", fake_urlopen)
+
+    bridge = CliOpenClawRuntimeBridge("main", openclaw_bin="openclaw")
+
+    with pytest.raises(OpenClawRequestError) as exc_info:
+        bridge.submit_invoke(
+            {
+                "invoke_id": "inv-005",
+                "task_id": "task-005",
+                "role": "coordinator",
+                "trace_id": "trace-005",
+                "goal": "验证 callback 非 JSON 返回体",
+                "input": {"title": "callback payload error", "message": "请返回非 JSON。"},
+                "constraints": {"structured_output_required": True},
+                "callbacks": {
+                    "result": {
+                        "url": "http://sidecar.local/hooks/openclaw/result",
+                        "headers": {"X-OpenClaw-Hooks-Token": "token-005"},
+                    }
+                },
+            }
+        )
+
+    exc = exc_info.value
+    assert exc.kind == "callback_payload_error"
+    assert exc.status_code == 200
+    assert exc.details == {
+        "stage": "callback",
+        "callback_url": "http://sidecar.local/hooks/openclaw/result",
+        "http_status": 200,
+        "response_body_excerpt": "definitely not json",
     }
 
 

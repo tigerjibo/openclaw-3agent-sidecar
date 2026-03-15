@@ -349,6 +349,19 @@ class CliOpenClawRuntimeBridge:
                     parsed = json.loads(raw.decode("utf-8")) if raw else None
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     parsed = None
+                if raw and parsed is None:
+                    raise OpenClawRequestError(
+                        "OpenClaw CLI result callback returned a non-JSON response body",
+                        kind="callback_payload_error",
+                        status_code=int(response.status),
+                        retryable=False,
+                        details={
+                            "stage": "callback",
+                            "callback_url": callback_url,
+                            "http_status": int(response.status),
+                            "response_body_excerpt": raw.decode("utf-8", errors="replace")[:400],
+                        },
+                    )
                 return {
                     "accepted": 200 <= int(response.status) < 300,
                     "status_code": int(response.status),
@@ -363,18 +376,33 @@ class CliOpenClawRuntimeBridge:
                 kind="client_error" if 400 <= code < 500 else "server_error",
                 status_code=code,
                 retryable=code >= 500 or code == 429,
+                details={
+                    "stage": "callback",
+                    "callback_url": callback_url,
+                    "http_status": code,
+                    "response_body_excerpt": details[:400] or None,
+                },
             ) from exc
         except socket.timeout as exc:
             raise OpenClawRequestError(
                 f"Timeout reaching sidecar result callback after {self.timeout_sec}s",
                 kind="timeout",
                 retryable=True,
+                details={
+                    "stage": "callback",
+                    "callback_url": callback_url,
+                },
             ) from exc
         except URLError as exc:
             raise OpenClawRequestError(
                 f"Unable to reach sidecar result callback: {exc.reason}",
                 kind="connection_error",
                 retryable=True,
+                details={
+                    "stage": "callback",
+                    "callback_url": callback_url,
+                    "reason": str(exc.reason),
+                },
             ) from exc
 
     def _callback_headers(self, callback: dict[str, Any]) -> dict[str, str]:
