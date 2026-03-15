@@ -8,6 +8,7 @@ It is intentionally narrower than the broader rollout documents:
 - `deploy/aws-staging-safe-deploy.md`
 - `deploy/aws-staging-execution-checklist.md`
 - `deploy/aws-direct-cutover-impact-and-runbook.md`
+- `deploy/aws-role-specific-agent-reviewer-only.env.example`
 - `docs/plans/2026-03-15-role-specific-agent-staging-validation.md`
 
 Use this checklist only after the CLI bridge implementation is already present in
@@ -22,6 +23,10 @@ Validated on 2026-03-15 with the following minimal successful shape:
 
 This reviewer-only shape completed a real task closed loop on the AWS host and is
 the recommended first-pass rollout shape.
+
+If you want a copyable baseline instead of editing keys from scratch, start from:
+
+- `deploy/aws-role-specific-agent-reviewer-only.env.example`
 
 ---
 

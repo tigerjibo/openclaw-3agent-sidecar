@@ -9,6 +9,7 @@ This directory contains **sample deployment assets** for running `openclaw-3agen
 - `windows/openclaw-sidecar.ps1` — Windows PowerShell launcher example
 - `nginx/openclaw-sidecar-aws-staging.conf` — Nginx example for publishing the new sidecar at `/sidecar/` on the current AWS host
 - `aws-staging.env.example` — AWS staging candidate env template inferred from the historical OpenClaw runbook
+- `aws-role-specific-agent-reviewer-only.env.example` — validated reviewer-only staging baseline for the current AWS host (`reviewer -> sysarch`, others fallback to `main`)
 - `aws-staging-discovery.md` — step-by-step guide for discovering `HOOKS_TOKEN`, `PUBLIC_BASE_URL`, and `RUNTIME_INVOKE_URL` on the AWS host
 - `aws-staging-rollout-plan.md` — live-AWS rollout plan based on the confirmed current cloud topology
 - `aws-staging-execution-checklist.md` — copyable server-side execution sequence for the first staging rollout
@@ -17,6 +18,13 @@ This directory contains **sample deployment assets** for running `openclaw-3agen
 - `aws-direct-cutover-impact-and-runbook.md` — direct-replacement cutover guide for replacing the legacy `127.0.0.1:9600` runtime without pretending the old Feishu/timer platform is already migrated
 
 These files are intentionally lightweight and should be adapted for your environment.
+
+For the current AWS host, keep these two env examples conceptually separate:
+
+- `aws-staging.env.example` — historical discovery / candidate template used during earlier upstream probing
+- `aws-role-specific-agent-reviewer-only.env.example` — the first real, staging-validated role-routing baseline
+
+If you want the safest copyable starting point for role-specific rollout today, start from the reviewer-only baseline and then widen coverage one role at a time.
 
 ## Recommended environment variables
 

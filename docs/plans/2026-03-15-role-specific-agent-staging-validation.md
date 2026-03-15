@@ -34,6 +34,7 @@
 
 配套执行步骤见：
 
+- `deploy/aws-role-specific-agent-reviewer-only.env.example`
 - `deploy/aws-role-specific-agent-staging-rollout-checklist.md`
 
 ---
