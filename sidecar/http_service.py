@@ -101,14 +101,22 @@ class LocalTaskKernelHttpService:
             return
 
         if method == "POST" and path == "/runtime/ingress":
-            with self._lock:
-                payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="runtime")
+            try:
+                with self._lock:
+                    payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="runtime")
+            except ValueError as exc:
+                self._write_invalid_request(handler, str(exc))
+                return
             self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
             return
 
         if method == "POST" and path == "/runtime/result":
-            with self._lock:
-                payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="runtime")
+            try:
+                with self._lock:
+                    payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="runtime")
+            except ValueError as exc:
+                self._write_invalid_request(handler, str(exc))
+                return
             self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 
@@ -126,16 +134,24 @@ class LocalTaskKernelHttpService:
         if method == "POST" and path == "/hooks/openclaw/ingress":
             if not self._authorize_openclaw_hook(handler):
                 return
-            with self._lock:
-                payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="hook")
+            try:
+                with self._lock:
+                    payload = IngressAdapter(self.app).ingest(self._read_json_body(handler) or {}, channel="hook")
+            except ValueError as exc:
+                self._write_invalid_request(handler, str(exc))
+                return
             self._write_json(handler, 201 if bool(payload.get("created")) else 200, {"status": "ok", "data": payload})
             return
 
         if method == "POST" and path == "/hooks/openclaw/result":
             if not self._authorize_openclaw_hook(handler):
                 return
-            with self._lock:
-                payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="hook")
+            try:
+                with self._lock:
+                    payload = ResultAdapter(self.app).apply_result(self._read_json_body(handler) or {}, channel="hook")
+            except ValueError as exc:
+                self._write_invalid_request(handler, str(exc))
+                return
             self._write_json(handler, 200, {"status": "ok", "data": payload})
             return
 
@@ -231,6 +247,19 @@ class LocalTaskKernelHttpService:
         handler.send_header("Content-Length", str(len(payload)))
         handler.end_headers()
         handler.wfile.write(payload)
+
+    def _write_invalid_request(self, handler: BaseHTTPRequestHandler, message: str) -> None:
+        self._write_json(
+            handler,
+            400,
+            {
+                "ok": False,
+                "error": True,
+                "code": "invalid_request",
+                "message": message,
+                "details": {},
+            },
+        )
 
     def _authorize_openclaw_hook(self, handler: BaseHTTPRequestHandler) -> bool:
         runner = getattr(self, "service_runner", None)
