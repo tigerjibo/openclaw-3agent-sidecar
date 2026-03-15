@@ -317,6 +317,9 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
             "runtime_cli_timeout_sec": 45.0,
             "public_base_url": "https://example.com/sidecar",
             "hooks_token": "token-003",
+            "coordinator_agent_id": "coord-v2",
+            "executor_agent_id": "exec-v2",
+            "reviewer_agent_id": "review-v2",
         }
     )
 
@@ -330,6 +333,15 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
             "openclaw_bin": "openclaw",
             "timeout_sec": 45.0,
             "result_callback_url": "http://127.0.0.1:9600/hooks/openclaw/result",
+            "role_agent_mapping": {
+                "configured_agents": {
+                    "coordinator": "coord-v2",
+                    "executor": "exec-v2",
+                    "reviewer": "review-v2",
+                },
+                "fallback_agent_id": "main",
+                "routing_mode": "single_agent_fallback",
+            },
         }
     finally:
         runner.stop()

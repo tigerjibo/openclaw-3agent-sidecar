@@ -863,4 +863,22 @@ class ServiceRunner:
         except Exception:
             logger.exception("Failed to describe runtime bridge")
             return {"kind": bridge.__class__.__name__, "describe_error": True}
-        return dict(metadata or {"kind": bridge.__class__.__name__})
+        payload = dict(metadata or {"kind": bridge.__class__.__name__})
+        if str(payload.get("kind") or "") == "openclaw_cli":
+            payload["role_agent_mapping"] = {
+                "configured_agents": self._configured_role_agent_ids(),
+                "fallback_agent_id": payload.get("agent_id"),
+                "routing_mode": "single_agent_fallback",
+            }
+        return payload
+
+    def _configured_role_agent_ids(self) -> dict[str, str | None]:
+        return {
+            "coordinator": self._configured_role_agent_id("coordinator_agent_id"),
+            "executor": self._configured_role_agent_id("executor_agent_id"),
+            "reviewer": self._configured_role_agent_id("reviewer_agent_id"),
+        }
+
+    def _configured_role_agent_id(self, key: str) -> str | None:
+        value = str(self._config.get(key) or "").strip()
+        return value or None

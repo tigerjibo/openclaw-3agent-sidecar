@@ -123,6 +123,9 @@ CONFIG_RUNTIME_INVOKE_URL: Final[str] = "runtime_invoke_url"
 CONFIG_RUNTIME_CLI_TIMEOUT_SEC: Final[str] = "runtime_cli_timeout_sec"
 CONFIG_RUNTIME_SUBMIT_RETRY_DELAY_SEC: Final[str] = "runtime_submit_retry_delay_sec"
 CONFIG_RUNTIME_SUBMIT_MAX_ATTEMPTS: Final[str] = "runtime_submit_max_attempts"
+CONFIG_COORDINATOR_AGENT_ID: Final[str] = "coordinator_agent_id"
+CONFIG_EXECUTOR_AGENT_ID: Final[str] = "executor_agent_id"
+CONFIG_REVIEWER_AGENT_ID: Final[str] = "reviewer_agent_id"
 CONFIG_INTEGRATION_PROBE_TTL_SEC: Final[str] = "integration_probe_ttl_sec"
 CONFIG_HOOK_REGISTRATION_RETRY_SEC: Final[str] = "hook_registration_retry_sec"
 CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER: Final[str] = "hook_registration_failure_alert_after"
@@ -144,6 +147,9 @@ CONFIG_KEYS: Final[tuple[str, ...]] = (
     CONFIG_RUNTIME_CLI_TIMEOUT_SEC,
     CONFIG_RUNTIME_SUBMIT_RETRY_DELAY_SEC,
     CONFIG_RUNTIME_SUBMIT_MAX_ATTEMPTS,
+    CONFIG_COORDINATOR_AGENT_ID,
+    CONFIG_EXECUTOR_AGENT_ID,
+    CONFIG_REVIEWER_AGENT_ID,
     CONFIG_INTEGRATION_PROBE_TTL_SEC,
     CONFIG_HOOK_REGISTRATION_RETRY_SEC,
     CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER,

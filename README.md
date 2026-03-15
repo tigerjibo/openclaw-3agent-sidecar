@@ -214,6 +214,9 @@ Current gateway / hook related config includes:
 - `OPENCLAW_RUNTIME_CLI_TIMEOUT_SEC`
 - `OPENCLAW_RUNTIME_SUBMIT_RETRY_DELAY_SEC`
 - `OPENCLAW_RUNTIME_SUBMIT_MAX_ATTEMPTS`
+- `OPENCLAW_COORDINATOR_AGENT_ID`
+- `OPENCLAW_EXECUTOR_AGENT_ID`
+- `OPENCLAW_REVIEWER_AGENT_ID`
 - `OPENCLAW_INTEGRATION_PROBE_TTL_SEC`
 
 For a **real HTTP invoke -> result callback** loop, treat these three values as a set:
@@ -240,6 +243,17 @@ controls:
   releases a retryable `submit_failed` task back to `idle`
 - `OPENCLAW_RUNTIME_SUBMIT_MAX_ATTEMPTS` — maximum total dispatch attempts
   before recovery blocks the task for manual investigation instead of retrying forever
+
+For future role-specific OpenClaw agent routing, the sidecar also accepts:
+
+- `OPENCLAW_COORDINATOR_AGENT_ID`
+- `OPENCLAW_EXECUTOR_AGENT_ID`
+- `OPENCLAW_REVIEWER_AGENT_ID`
+
+In the current Task 7 stage these values are configuration-only and are surfaced
+in CLI bridge metadata for operators. If they are left empty, the sidecar keeps
+falling back to the single agent encoded in `OPENCLAW_RUNTIME_INVOKE_URL`
+such as `openclaw-cli://main`.
 
 When `openclaw-cli://<agent_id>` is used, the sidecar invokes `openclaw agent --agent <agent_id> --json`, asks the agent to return one strict JSON object for the current sidecar role, and then posts the structured result back into the existing result callback contract.
 

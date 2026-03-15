@@ -51,6 +51,18 @@ def test_load_config_reads_runtime_submit_max_attempts_from_env(monkeypatch) -> 
     assert cfg["runtime_submit_max_attempts"] == 5
 
 
+def test_load_config_reads_role_specific_agent_ids_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_COORDINATOR_AGENT_ID", "coord-v2")
+    monkeypatch.setenv("OPENCLAW_EXECUTOR_AGENT_ID", "exec-v2")
+    monkeypatch.setenv("OPENCLAW_REVIEWER_AGENT_ID", "review-v2")
+
+    cfg = load_config()
+
+    assert cfg["coordinator_agent_id"] == "coord-v2"
+    assert cfg["executor_agent_id"] == "exec-v2"
+    assert cfg["reviewer_agent_id"] == "review-v2"
+
+
 def test_load_config_reads_public_base_url_from_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENCLAW_PUBLIC_BASE_URL", "https://sidecar.example.com/base/")
 
