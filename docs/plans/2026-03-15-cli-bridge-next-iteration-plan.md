@@ -6,6 +6,21 @@
 
 **Tech Stack:** Python 3.9+、SQLite、pytest、OpenClaw CLI、当前 sidecar HTTP control plane。
 
+## 完成状态快照（2026-03-15）
+
+本轮计划已完成并合入 `master`，核心落地点如下：
+
+- 已完成 CLI 进程摘要输出：`exit_code`、`stdout_excerpt`、`stderr_excerpt`
+- 已完成 callback failure 分类与结构化回填
+- 已完成 `integration.runtime_invoke.recent_submission` 最近一次提交摘要
+- 已完成独立 CLI timeout 配置与 submit retry/backoff 基础治理
+- 已完成 `remote_validate` 的 blocker 分层输出
+- 已完成 CLI bridge 故障 runbook
+- 已完成 role-specific agent 配置项与真实按 role 路由
+- 已完成发布说明模板：`docs/plans/release-note-template.md`
+
+本轮完成后，CLI bridge 已从“可接通”推进到“可值班、可治理、可按角色分流”，后续如继续推进，建议优先转向真实环境验证、发布流程固化与更细的生产观测。
+
 ---
 
 ## 当前基线（按代码真实状态）
