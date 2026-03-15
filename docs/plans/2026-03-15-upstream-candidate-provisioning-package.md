@@ -163,3 +163,24 @@ Use the following operator-facing request when coordinating upstream supply:
 - If a future `executor-grade` candidate appears without coordinator coverage, the supply gap is only partially reduced.
 - If future candidates appear for both missing directions, each still needs intake validation before they are treated as rollout-grade.
 - Real 3-agent wording remains blocked until three independent upstream role targets are actually evidenced.
+
+## Verification Evidence
+
+- preflight commands run successfully:
+  - `Test-Path C:/git_ssh/openclaw-key-2.pem`
+  - `ssh -i C:/git_ssh/openclaw-key-2.pem ubuntu@13.51.172.206 "echo preflight-ok"`
+  - `ssh -i C:/git_ssh/openclaw-key-2.pem ubuntu@13.51.172.206 "curl -s http://127.0.0.1:9600/readyz"`
+- live Gate 1 evidence commands run successfully:
+  - `ssh -i C:/git_ssh/openclaw-key-2.pem ubuntu@13.51.172.206 "curl -s http://127.0.0.1:9600/ops/summary"`
+  - `ssh -i C:/git_ssh/openclaw-key-2.pem ubuntu@13.51.172.206 "find /home/ubuntu/.openclaw/agents ... ; ls -lt ..."`
+- workspace regex search completed against `docs/**` and `deploy/**` for candidate naming clues
+- editor diagnostics passed for:
+  - `docs/plans/2026-03-15-upstream-candidate-discovery-gate-report.md`
+  - `docs/plans/2026-03-15-upstream-candidate-provisioning-package.md`
+  - `docs/plans/2026-03-15-real-3-agent-target-plan.md`
+- Gate 1 final result: `no additional candidate`
+- Gate 2 status: active
+- active source-of-truth documents for this blocker:
+  - `docs/plans/2026-03-15-phase0-agent-inventory-report.md`
+  - `docs/plans/2026-03-15-upstream-candidate-discovery-gate-report.md`
+  - `docs/plans/2026-03-15-upstream-candidate-provisioning-package.md`
