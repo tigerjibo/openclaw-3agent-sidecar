@@ -110,6 +110,14 @@
 - `main`
 - `sysarch`
 
+Phase 0 inventory execution is now complete for this evidence round. The result is:
+
+- `NO-GO`
+- blocker -> `upstream agent supply gap`
+- report of record -> `docs/plans/2026-03-15-phase0-agent-inventory-report.md`
+
+也就是说，当前 blocker 已从“需要先做 inventory 确认”收敛为“inventory 已执行，但仍未发现可进入 Phase 2 的 coordinator-grade / executor-grade 上游 agent 供给”。
+
 因此在继续推进前，必须先满足以下至少一项：
 
 ### Option A：发现现有但尚未登记的候选 agent
