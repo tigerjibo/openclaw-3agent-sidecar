@@ -59,6 +59,8 @@ class ServiceRunner:
             executing_timeout_sec=int(self._config["executing_timeout_sec"]),
             reviewing_timeout_sec=int(self._config["reviewing_timeout_sec"]),
             blocked_alert_after_sec=int(self._config["blocked_alert_after_sec"]),
+            submit_retry_delay_sec=float(self._config["runtime_submit_retry_delay_sec"]),
+            submit_retry_max_attempts=int(self._config["runtime_submit_max_attempts"]),
         )
         self._agent_health = AgentHealthMonitor(self._app)
         self._maintenance_stop = threading.Event()

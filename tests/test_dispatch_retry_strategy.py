@@ -7,8 +7,10 @@ from sidecar.api import TaskKernelApiApp
 from sidecar.models import get_task_by_id
 from sidecar.runtime.dispatcher import TaskDispatcher
 from sidecar.runtime.recovery import TaskRecovery
+from sidecar.runtime.scheduler import TaskScheduler
 from sidecar.runtime_mode import RuntimeModeController
 from sidecar.storage import connect, init_db
+from sidecar.time_utils import utc_now
 
 
 class RetryableFailBridge:
@@ -67,7 +69,7 @@ def test_retryable_submit_failure_can_be_released_by_recovery() -> None:
     app = _build_app()
     task_id = _ingest(app, "req-retryable-submit")
     dispatcher = TaskDispatcher(app, runtime_bridge=RetryableFailBridge())
-    recovery = TaskRecovery(app)
+    recovery = TaskRecovery(app, submit_retry_delay_sec=0, submit_retry_max_attempts=3)
 
     result = dispatcher.dispatch_task(task_id)
     assert result["dispatched"] is False
@@ -82,6 +84,33 @@ def test_retryable_submit_failure_can_be_released_by_recovery() -> None:
     recovered = recovery.recover_retryable_submit_failures()
     assert recovered == [task_id]
 
+    task = get_task_by_id(app.conn, task_id)
+    assert task["dispatch_status"] == "idle"
+
+
+def test_retryable_submit_failure_waits_for_backoff_before_recovery_release() -> None:
+    app = _build_app()
+    task_id = _ingest(app, "req-retryable-submit-backoff")
+    dispatcher = TaskDispatcher(app, runtime_bridge=RetryableFailBridge())
+    recovery = TaskRecovery(app, submit_retry_delay_sec=60, submit_retry_max_attempts=3)
+    scheduler = TaskScheduler(app, dispatcher=dispatcher)
+
+    result = dispatcher.dispatch_task(task_id)
+    assert result["submission_recovery_action"] == "retry"
+
+    recovered_before = recovery.recover_retryable_submit_failures(now=utc_now())
+    scheduled_before = scheduler.dispatch_ready_tasks(limit=10)
+
+    assert recovered_before == []
+    assert scheduled_before == []
+
+    app.conn.execute(
+        "UPDATE tasks SET last_event_at = ? WHERE task_id = ?",
+        ("2026-03-15 00:00:00", task_id),
+    )
+    recovered_after = recovery.recover_retryable_submit_failures(now=utc_now())
+
+    assert recovered_after == [task_id]
     task = get_task_by_id(app.conn, task_id)
     assert task["dispatch_status"] == "idle"
 
@@ -105,6 +134,28 @@ def test_non_retryable_submit_failure_is_not_released_by_recovery() -> None:
     task = get_task_by_id(app.conn, task_id)
     assert task["dispatch_status"] == "submit_failed"
     assert task["dispatch_error_retryable"] == 0
+
+
+def test_retryable_submit_failure_blocks_after_retry_budget_exhausted() -> None:
+    app = _build_app()
+    task_id = _ingest(app, "req-retry-budget-exhausted")
+    dispatcher = TaskDispatcher(app, runtime_bridge=RetryableFailBridge())
+    recovery = TaskRecovery(app, submit_retry_delay_sec=0, submit_retry_max_attempts=2)
+
+    first = dispatcher.dispatch_task(task_id)
+    assert first["submission_recovery_action"] == "retry"
+    assert recovery.recover_retryable_submit_failures(now=utc_now()) == [task_id]
+
+    second = dispatcher.dispatch_task(task_id)
+    assert second["submission_recovery_action"] == "retry"
+    assert recovery.recover_retryable_submit_failures(now=utc_now()) == []
+
+    task = get_task_by_id(app.conn, task_id)
+    assert task["dispatch_status"] == "idle"
+    assert task["blocked"] == 1
+    assert task["waiting_on"] == "runtime_retry_budget"
+    assert "retry budget exhausted" in str(task["block_reason"])
+    assert task["dispatch_attempts"] == 2
 
 
 def test_configuration_error_blocks_task_instead_of_leaving_retry_loop() -> None:

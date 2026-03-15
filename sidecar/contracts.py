@@ -121,6 +121,8 @@ CONFIG_BLOCKED_ALERT_AFTER_SEC: Final[str] = "blocked_alert_after_sec"
 CONFIG_DEFAULT_RUNTIME_MODE: Final[str] = "default_runtime_mode"
 CONFIG_RUNTIME_INVOKE_URL: Final[str] = "runtime_invoke_url"
 CONFIG_RUNTIME_CLI_TIMEOUT_SEC: Final[str] = "runtime_cli_timeout_sec"
+CONFIG_RUNTIME_SUBMIT_RETRY_DELAY_SEC: Final[str] = "runtime_submit_retry_delay_sec"
+CONFIG_RUNTIME_SUBMIT_MAX_ATTEMPTS: Final[str] = "runtime_submit_max_attempts"
 CONFIG_INTEGRATION_PROBE_TTL_SEC: Final[str] = "integration_probe_ttl_sec"
 CONFIG_HOOK_REGISTRATION_RETRY_SEC: Final[str] = "hook_registration_retry_sec"
 CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER: Final[str] = "hook_registration_failure_alert_after"
@@ -140,6 +142,8 @@ CONFIG_KEYS: Final[tuple[str, ...]] = (
     CONFIG_DEFAULT_RUNTIME_MODE,
     CONFIG_RUNTIME_INVOKE_URL,
     CONFIG_RUNTIME_CLI_TIMEOUT_SEC,
+    CONFIG_RUNTIME_SUBMIT_RETRY_DELAY_SEC,
+    CONFIG_RUNTIME_SUBMIT_MAX_ATTEMPTS,
     CONFIG_INTEGRATION_PROBE_TTL_SEC,
     CONFIG_HOOK_REGISTRATION_RETRY_SEC,
     CONFIG_HOOK_REGISTRATION_FAILURE_ALERT_AFTER,

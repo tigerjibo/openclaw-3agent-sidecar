@@ -204,6 +204,8 @@ Current gateway / hook related config includes:
 - `OPENCLAW_HOOK_REGISTRATION_FAILURE_ALERT_AFTER`
 - `OPENCLAW_RUNTIME_INVOKE_URL`
 - `OPENCLAW_RUNTIME_CLI_TIMEOUT_SEC`
+- `OPENCLAW_RUNTIME_SUBMIT_RETRY_DELAY_SEC`
+- `OPENCLAW_RUNTIME_SUBMIT_MAX_ATTEMPTS`
 - `OPENCLAW_INTEGRATION_PROBE_TTL_SEC`
 
 For a **real HTTP invoke -> result callback** loop, treat these three values as a set:
@@ -222,6 +224,14 @@ how long the sidecar waits for `openclaw agent --agent <agent_id> --json`
 before classifying the submission as a timeout. This timeout is independent from
 the HTTP runtime bridge timeout so CLI governance can be tuned without changing
 HTTP invoke behavior.
+
+Retryable runtime submission failures are also governed by two lightweight
+controls:
+
+- `OPENCLAW_RUNTIME_SUBMIT_RETRY_DELAY_SEC` — minimum wait before recovery
+	releases a retryable `submit_failed` task back to `idle`
+- `OPENCLAW_RUNTIME_SUBMIT_MAX_ATTEMPTS` — maximum total dispatch attempts
+	before recovery blocks the task for manual investigation instead of retrying forever
 
 When `openclaw-cli://<agent_id>` is used, the sidecar invokes `openclaw agent --agent <agent_id> --json`, asks the agent to return one strict JSON object for the current sidecar role, and then posts the structured result back into the existing result callback contract.
 

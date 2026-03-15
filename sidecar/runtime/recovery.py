@@ -6,7 +6,7 @@ from typing import Any
 from .. import contracts
 from ..events import append_event
 from ..metrics import get_state_entry_time
-from ..models import get_task_by_id, get_task_trace_id, update_task_fields
+from ..models import get_task_by_id, get_task_trace_id, mark_task_blocked, update_task_fields
 from ..time_utils import ensure_utc, parse_utc_datetime, utc_now
 
 _TERMINAL_STATES = {contracts.STATE_DONE, contracts.STATE_CANCELLED}
@@ -20,11 +20,15 @@ class TaskRecovery:
         executing_timeout_sec: int = 3600,
         reviewing_timeout_sec: int = 3600,
         blocked_alert_after_sec: int = 3600,
+        submit_retry_delay_sec: float = 30.0,
+        submit_retry_max_attempts: int = 3,
     ) -> None:
         self.app = app
         self.executing_timeout_sec = int(executing_timeout_sec)
         self.reviewing_timeout_sec = int(reviewing_timeout_sec)
         self.blocked_alert_after_sec = int(blocked_alert_after_sec)
+        self.submit_retry_delay_sec = float(submit_retry_delay_sec)
+        self.submit_retry_max_attempts = int(submit_retry_max_attempts)
 
     def recover_inflight_dispatches(self) -> list[str]:
         rows = self.app.conn.execute(
@@ -113,7 +117,7 @@ class TaskRecovery:
         review_timeout = self.recover_review_timeouts(now=now)
         escalate_timeout = execution_timeout + [task_id for task_id in review_timeout if task_id not in execution_timeout]
         escalate_blocked = self.recover_blocked_tasks(now=now)
-        retry_dispatch = self.recover_retryable_submit_failures()
+        retry_dispatch = self.recover_retryable_submit_failures(now=now)
         recover_dispatch = self.recover_inflight_dispatches()
 
         return {
@@ -123,10 +127,12 @@ class TaskRecovery:
             "escalate_blocked": escalate_blocked,
         }
 
-    def recover_retryable_submit_failures(self) -> list[str]:
+    def recover_retryable_submit_failures(self, *, now: datetime | None = None) -> list[str]:
+        current = ensure_utc(now) if now is not None else utc_now()
         rows = self.app.conn.execute(
             """
-                        SELECT task_id, dispatch_error_kind, dispatch_error_retryable FROM tasks
+            SELECT task_id, dispatch_error_kind, dispatch_error_retryable, dispatch_attempts, dispatch_error_message, last_event_at
+                        FROM tasks
             WHERE dispatch_status = 'submit_failed'
               AND state NOT IN ('done', 'cancelled')
             ORDER BY created_at ASC, task_id ASC
@@ -136,6 +142,17 @@ class TaskRecovery:
         recovered: list[str] = []
         for row in rows:
             if not self._should_retry_submit_failure(kind=row["dispatch_error_kind"], retryable=row["dispatch_error_retryable"]):
+                continue
+            attempts = int(row["dispatch_attempts"] or 0)
+            if not self._submit_retry_budget_remaining(attempts=attempts):
+                self._block_retry_exhausted_submit_failure(
+                    task_id=str(row["task_id"]),
+                    attempts=attempts,
+                    error_message=str(row["dispatch_error_message"] or "retryable runtime submission failed"),
+                )
+                continue
+            failed_at = self._parse_datetime(row["last_event_at"])
+            if failed_at is not None and not self._submit_retry_delay_elapsed(failed_at=failed_at, current=current):
                 continue
             task_id = str(row["task_id"])
             trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
@@ -167,6 +184,41 @@ class TaskRecovery:
         if int(retryable or 0) != 1:
             return False
         return str(kind or "").strip() != "configuration_error"
+
+    def _submit_retry_budget_remaining(self, *, attempts: int) -> bool:
+        return attempts < self.submit_retry_max_attempts
+
+    def _submit_retry_delay_elapsed(self, *, failed_at: datetime, current: datetime) -> bool:
+        return (current - failed_at).total_seconds() >= self.submit_retry_delay_sec
+
+    def _block_retry_exhausted_submit_failure(self, *, task_id: str, attempts: int, error_message: str) -> None:
+        trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
+        update_task_fields(
+            self.app.conn,
+            task_id,
+            dispatch_status="idle",
+            dispatch_role=None,
+            dispatch_started_at=None,
+        )
+        mark_task_blocked(
+            self.app.conn,
+            task_id,
+            reason=f"runtime submit retry budget exhausted after {attempts} attempts: {error_message}",
+            waiting_on="runtime_retry_budget",
+        )
+        self.app.conn.execute(
+            "UPDATE tasks SET last_event_at = datetime('now'), last_event_summary = ? WHERE task_id = ?",
+            ("recovery blocked task after retry budget exhausted", task_id),
+        )
+        append_event(
+            self.app.conn,
+            task_id=task_id,
+            event_type="task.recovered",
+            actor="recovery",
+            action="exhaust_retry_dispatch",
+            summary="recovery blocked task after retry budget exhausted",
+            trace_id=trace_id,
+        )
 
     def _recover_state_timeouts(
         self,

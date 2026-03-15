@@ -55,7 +55,6 @@ class TaskScheduler:
                             AND (
                                         dispatch_status = 'idle'
                                  OR dispatch_status IS NULL
-                                 OR (dispatch_status = 'submit_failed' AND COALESCE(dispatch_error_retryable, 0) = 1)
                             )
             ORDER BY created_at ASC, task_id ASC
             LIMIT ?
