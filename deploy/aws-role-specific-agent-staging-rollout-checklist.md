@@ -24,6 +24,18 @@ Validated on 2026-03-15 with the following minimal successful shape:
 This reviewer-only shape completed a real task closed loop on the AWS host and is
 the recommended first-pass rollout shape.
 
+As of 2026-03-15, the live AWS staging service should be described honestly as:
+
+- a **3-role** sidecar workflow (`coordinator / executor / reviewer`)
+- with **reviewer-only** role-specific routing enabled
+- **not yet** a full "3 independent upstream agents" rollout
+
+Current confirmed upstream agent picture on the host:
+
+- `main` is present and used as the fallback agent
+- `sysarch` is present and used for `reviewer`
+- `coordinator` and `executor` still fall back to `main`
+
 If you want a copyable baseline instead of editing keys from scratch, start from:
 
 - `deploy/aws-role-specific-agent-reviewer-only.env.example`

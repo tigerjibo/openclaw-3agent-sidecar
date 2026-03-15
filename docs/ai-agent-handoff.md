@@ -138,6 +138,13 @@
 - maintenance 驱动的 recovery / health / integration probe 主流程
 - reviewer-only role-specific AWS staging 基线（`reviewer -> sysarch`，其余角色回退 `main`）
 
+这里要特别注意口径：
+
+- 当前线上已跑通的是 **3 角色状态机**
+- 但还不是 **3 个角色各自独立 upstream agent** 的完整 rollout
+- 当前可确认的 upstream agent 只有 `main` 与 `sysarch`
+- 因此更准确的描述是：**reviewer-only role-specific staging 已通过，coordinator / executor 仍在 fallback 到 `main`**
+
 ## 你接下来应该优先做什么
 
 推荐顺序：

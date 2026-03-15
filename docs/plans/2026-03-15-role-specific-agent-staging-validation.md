@@ -30,6 +30,7 @@
 
 - **代码已就绪**
 - **reviewer-only role-specific staging 验证已通过**
+- **当前不是完整 3-agent rollout，只是 3 角色流程 + reviewer 独立 agent**
 - **若继续扩大 rollout，可再逐步启用 coordinator / executor 的独立 agent**
 
 配套执行步骤见：
@@ -54,6 +55,13 @@ OPENCLAW_REVIEWER_AGENT_ID=sysarch
 
 - `main` ✅
 - `sysarch` ✅
+
+### 当前准确口径
+
+- sidecar 内部一直是固定 `coordinator / executor / reviewer` 三角色流程
+- 但 AWS staging 上当前只验证了 `reviewer -> sysarch`
+- `coordinator` / `executor` 仍走 fallback `main`
+- 因而当前不是“3 个角色都已切到各自独立 upstream agent”的完整 3-agent 形态
 
 ### 当前不应直接使用的候选
 
