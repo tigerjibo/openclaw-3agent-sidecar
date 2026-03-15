@@ -5,10 +5,11 @@ import signal
 import sys
 import threading
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 from typing import Any
 
 from .api import TaskKernelApiApp
-from .adapters.openclaw_runtime import HttpOpenClawRuntimeBridge, OpenClawGatewayClient
+from .adapters.openclaw_runtime import CliOpenClawRuntimeBridge, HttpOpenClawRuntimeBridge, OpenClawGatewayClient, OpenClawRuntimeBridge
 from .config import load_config
 from .contracts import HEALTH_DEGRADED, HEALTH_FAILED, HEALTH_OK, READINESS_BLOCKED, READINESS_READY, READINESS_WARMING
 from .http_service import LocalTaskKernelHttpService
@@ -801,15 +802,28 @@ class ServiceRunner:
         had_actions = bool(summary.get("dispatched_task_ids")) or any(bool(recovery.get(key)) for key in ("recover_dispatch", "retry_dispatch", "escalate_timeout", "escalate_blocked"))
         return "in_progress" if had_actions else "no_effect"
 
-    def _build_runtime_bridge(self) -> HttpOpenClawRuntimeBridge | None:
+    def _build_runtime_bridge(self) -> OpenClawRuntimeBridge | None:
         invoke_url = str(self._config.get("runtime_invoke_url") or "").strip()
         if not invoke_url:
             return None
+        local_result_callback_url = ""
+        host = str(self._config.get("host") or "").strip()
+        port = int(self._config.get("port") or 0)
+        if host and port > 0:
+            local_result_callback_url = f"http://{host}:{port}/hooks/openclaw/result"
         public_base_url = str(self._config.get("public_base_url") or "").strip()
         hooks_token = str(self._config.get("hooks_token") or "").strip()
         result_callback_url = ""
         if public_base_url and hooks_token:
             _, result_callback_url = self._hook_callback_urls(public_base_url)
+        parsed = urlparse(invoke_url)
+        if parsed.scheme in {"openclaw-cli", "openclaw-agent"}:
+            agent_id = (parsed.netloc or parsed.path or "").lstrip("/").strip() or "main"
+            return CliOpenClawRuntimeBridge(
+                agent_id=agent_id,
+                result_callback_url=local_result_callback_url or result_callback_url,
+                hooks_token=hooks_token,
+            )
         return HttpOpenClawRuntimeBridge(
             invoke_url,
             result_callback_url=result_callback_url,

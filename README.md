@@ -182,6 +182,15 @@ Quick integration smoke command:
 
 This boots a temporary sidecar plus a fake upstream runtime, runs a real HTTP `invoke -> result callback` closed loop, and prints a JSON summary with final task state, endpoint health, and integration readiness.
 
+Remote integration validation command:
+
+- `openclaw-sidecar-remote-validate`
+- or `python -m sidecar.remote_validate`
+
+This command uses the current `OPENCLAW_*` environment to validate real upstream wiring. By default it runs **probe-only** checks and reports blocking issues such as missing callback configuration, unreachable upstream endpoints, or incomplete hook registration. Add `--dispatch-sample` when you want it to create one sample task and attempt a real runtime submission.
+
+If `.env` exists, the command will also preload `OPENCLAW_*` defaults from that file unless the same variables are already exported in the shell.
+
 ## Environment
 
 See `.env.example` and `.env` for the initial placeholder configuration.
@@ -201,6 +210,13 @@ For a **real HTTP invoke -> result callback** loop, treat these three values as 
 - `OPENCLAW_RUNTIME_INVOKE_URL`
 - `OPENCLAW_HOOKS_TOKEN`
 - `OPENCLAW_PUBLIC_BASE_URL`
+
+`OPENCLAW_RUNTIME_INVOKE_URL` now supports two integration styles:
+
+- direct HTTP invoke endpoint, for example `http://127.0.0.1:8080/runtime/invoke`
+- OpenClaw CLI agent bridge, for example `openclaw-cli://main`
+
+When `openclaw-cli://<agent_id>` is used, the sidecar invokes `openclaw agent --agent <agent_id> --json`, asks the agent to return one strict JSON object for the current sidecar role, and then posts the structured result back into the existing result callback contract.
 
 Only configuring `OPENCLAW_RUNTIME_INVOKE_URL` means the sidecar can submit work outward, but it still cannot advertise a stable authenticated result callback URL back to the upstream runtime. In that state, ops payloads report the integration as `partially_configured` rather than `fully_configured`.
 
