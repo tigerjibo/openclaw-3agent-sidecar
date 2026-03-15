@@ -347,6 +347,45 @@ Treat the rollout as successful only if all are true:
 
 ---
 
+## 10.5 When this can honestly be called "real 3-agent"
+
+Do not label the system as "3-agent" merely because the sidecar has three
+runtime roles. The sidecar always has:
+
+- `coordinator`
+- `executor`
+- `reviewer`
+
+That alone only proves a **3-role workflow**, not a full **3-agent rollout**.
+
+Use the label **real 3-agent staging** only when all of the following are true:
+
+- [ ] `OPENCLAW_COORDINATOR_AGENT_ID` is explicitly configured
+- [ ] `OPENCLAW_EXECUTOR_AGENT_ID` is explicitly configured
+- [ ] `OPENCLAW_REVIEWER_AGENT_ID` is explicitly configured
+- [ ] each configured agent is real and callable on the host
+- [ ] no role is still relying on fallback to `main`
+- [ ] `remote_validate --dispatch-sample` succeeds with the full mapping enabled
+- [ ] `ops/summary` shows the full role mapping honestly
+- [ ] upstream session logs or equivalent evidence show the three role invokes reaching their intended agents
+
+For the strongest wording, prefer the stricter interpretation below:
+
+- `coordinator`, `executor`, and `reviewer` each route to their own independent upstream agent
+
+If two roles share the same upstream agent, that still counts as useful
+role-specific routing validation, but it should **not** be described as a full
+three-independent-agent rollout.
+
+As of 2026-03-15, the current AWS staging environment is **not yet** at this
+stage. Its accurate label remains:
+
+- 3-role sidecar workflow
+- reviewer-only role-specific routing
+- fallback still active for `coordinator` and `executor`
+
+---
+
 ## 11. Immediate rollback
 
 Rollback immediately if any of these happen:
