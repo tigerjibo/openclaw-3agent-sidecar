@@ -233,7 +233,10 @@ class LocalTaskKernelHttpService:
         handler.wfile.write(payload)
 
     def _authorize_openclaw_hook(self, handler: BaseHTTPRequestHandler) -> bool:
-        cfg = load_config()
+        runner = getattr(self, "service_runner", None)
+        cfg = getattr(runner, "_config", None) if runner is not None else None
+        if not isinstance(cfg, dict):
+            cfg = load_config()
         expected_token = str(cfg.get("hooks_token") or "").strip()
         provided_token = str(handler.headers.get("X-OpenClaw-Hooks-Token") or "").strip()
         if expected_token and provided_token == expected_token:

@@ -14,6 +14,7 @@ from sidecar.http_service import LocalTaskKernelHttpService
 from sidecar.models import get_task_by_id
 from sidecar.runtime.dispatcher import TaskDispatcher
 from sidecar.runtime_mode import RuntimeModeController
+from sidecar.service_runner import ServiceRunner
 from sidecar.storage import connect, init_db
 
 
@@ -787,6 +788,60 @@ def test_openclaw_result_hook_requires_matching_hooks_token(monkeypatch) -> None
     assert task["goal"] == "打通 hook result 回写"
     events = list_recent_events(conn, task_id, limit=10)
     assert any(event["summary"] == "coordinator result received via hook: succeeded" for event in events)
+
+
+def test_openclaw_result_hook_accepts_service_runner_config_token_without_env(monkeypatch) -> None:
+    monkeypatch.delenv("OPENCLAW_HOOKS_TOKEN", raising=False)
+    runner = ServiceRunner(
+        config={
+            "db_path": ":memory:",
+            "maintenance_interval_sec": 0,
+            "hooks_token": "runner-hook-secret",
+        }
+    )
+    ingress = IngressAdapter(runner._app)
+    invoke = AgentInvokeAdapter(runner._app)
+    task_id = ingress.ingest(
+        {
+            "request_id": "req-openclaw-hook-result-runner-config-001",
+            "source": "openclaw",
+            "source_user_id": "user-openclaw-hook-result",
+            "entrypoint": "institutional_task",
+            "title": "runner 配置中的 token 也应被 hook 接受",
+            "message": "即使进程环境没设 token，也应按当前 runner 配置鉴权。",
+            "task_type_hint": "engineering",
+        }
+    )["task_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
+
+    try:
+        runner.start()
+        assert runner.http_service.base_url is not None
+        status, body = _post_json_with_headers(
+            f"{runner.http_service.base_url}/hooks/openclaw/result",
+            {
+                "invoke_id": coordinator_invoke["invoke_id"],
+                "task_id": task_id,
+                "role": "coordinator",
+                "trace_id": coordinator_invoke["trace_id"],
+                "status": "succeeded",
+                "output": {
+                    "goal": "按 runner 配置完成 hook 鉴权",
+                    "acceptance_criteria": ["无需环境变量也能通过"],
+                    "risk_notes": [],
+                    "proposed_steps": ["读取当前 runner 配置"],
+                },
+            },
+            {"X-OpenClaw-Hooks-Token": "runner-hook-secret"},
+        )
+        task = get_task_by_id(runner._app.conn, task_id)
+    finally:
+        runner.stop()
+
+    assert status == 200
+    assert body["status"] == "ok"
+    assert task is not None
+    assert task["state"] == "queued"
 
 
 def test_openclaw_result_hook_rejects_missing_or_invalid_token(monkeypatch) -> None:
