@@ -914,6 +914,119 @@ def test_openclaw_result_hook_requires_matching_hooks_token(monkeypatch) -> None
     assert any(event["summary"] == "coordinator result received via hook: succeeded" for event in events)
 
 
+def test_openclaw_result_hook_duplicate_callback_is_idempotent(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+    ingress = IngressAdapter(app)
+    invoke = AgentInvokeAdapter(app)
+    task_id = ingress.ingest(
+        {
+            "request_id": "req-openclaw-hook-result-duplicate-001",
+            "source": "openclaw",
+            "source_user_id": "user-openclaw-hook-result",
+            "entrypoint": "institutional_task",
+            "title": "重复 result hook 应幂等",
+            "message": "同一个 invoke_id 的 callback 重放不应再次推进状态机。",
+            "task_type_hint": "engineering",
+        }
+    )["task_id"]
+    coordinator_invoke = invoke.build_invoke(task_id, role="coordinator")
+    payload = {
+        "invoke_id": coordinator_invoke["invoke_id"],
+        "task_id": task_id,
+        "role": "coordinator",
+        "trace_id": coordinator_invoke["trace_id"],
+        "status": "succeeded",
+        "output": {
+            "goal": "重复 callback 幂等",
+            "acceptance_criteria": ["状态机只前进一步"],
+            "risk_notes": [],
+            "proposed_steps": [],
+        },
+    }
+
+    try:
+        service.start()
+        assert service.base_url is not None
+        first_status, first_body = _post_json_with_headers(
+            f"{service.base_url}/hooks/openclaw/result",
+            payload,
+            {"X-OpenClaw-Hooks-Token": "hook-secret"},
+        )
+        second_status, second_body = _post_json_with_headers(
+            f"{service.base_url}/hooks/openclaw/result",
+            payload,
+            {"X-OpenClaw-Hooks-Token": "hook-secret"},
+        )
+    finally:
+        service.stop()
+
+    assert first_status == 200
+    assert second_status == 200
+    assert first_body["status"] == "ok"
+    assert second_body["status"] == "ok"
+
+    conn = app.conn
+    assert conn is not None
+    task = get_task_by_id(conn, task_id)
+    assert task is not None
+    assert task["state"] == "queued"
+    assert task["current_role"] == "executor"
+    assert task["last_invoke_id"] == coordinator_invoke["invoke_id"]
+
+    events = list_recent_events(conn, task_id, limit=20)
+    result_received_events = [
+        event
+        for event in events
+        if event["event_type"] == "task.result_received" and event["idempotency_key"] == coordinator_invoke["invoke_id"]
+    ]
+    assert len(result_received_events) == 1
+
+
+def test_runtime_result_endpoint_rejects_unknown_task_as_invalid_request() -> None:
+    app = _build_app()
+    service = LocalTaskKernelHttpService(app=app, host="127.0.0.1", port=0)
+
+    try:
+        service.start()
+        assert service.base_url is not None
+        request = Request(
+            f"{service.base_url}/runtime/result",
+            data=json.dumps(
+                {
+                    "invoke_id": "inv:task-missing:coordinator:v1:a1",
+                    "task_id": "task-missing",
+                    "role": "coordinator",
+                    "trace_id": "trace-missing-task-001",
+                    "status": "succeeded",
+                    "output": {
+                        "goal": "不应写回",
+                        "acceptance_criteria": [],
+                        "risk_notes": [],
+                        "proposed_steps": [],
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
+        try:
+            urlopen(request, timeout=5)
+        except HTTPError as exc:
+            body = cast(dict[str, Any], json.loads(exc.read().decode("utf-8")))
+            status = exc.code
+        else:  # pragma: no cover
+            raise AssertionError("expected runtime result request to be rejected")
+    finally:
+        service.stop()
+
+    assert status == 400
+    assert body["code"] == "invalid_request"
+    assert "task not found" in body["message"]
+
+
 def test_openclaw_result_hook_rejects_trace_id_mismatch_as_invalid_request(monkeypatch) -> None:
     monkeypatch.setenv("OPENCLAW_HOOKS_TOKEN", "hook-secret")
     app = _build_app()
