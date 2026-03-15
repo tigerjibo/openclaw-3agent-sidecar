@@ -29,8 +29,10 @@ class _FakeHttpResponse:
 
 def test_cli_runtime_bridge_posts_structured_result_callback(monkeypatch) -> None:
     captured_request: dict[str, Any] = {}
+    captured_command: dict[str, Any] = {}
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured_command["command"] = list(command)
         payload = {
             "runId": "run-001",
             "status": "ok",
@@ -83,6 +85,7 @@ def test_cli_runtime_bridge_posts_structured_result_callback(monkeypatch) -> Non
 
     assert result["accepted"] is True
     assert result["submission_id"] == "run-001"
+    assert result["response"]["selected_agent_id"] == "main"
     assert result["response"]["cli_process"] == {
         "exit_code": 0,
         "stdout_excerpt": "plugin logs\n{\"runId\": \"run-001\", \"status\": \"ok\", \"summary\": \"completed\", \"result\": {\"payloads\": [{\"text\": \"{\\\"goal\\\": \\\"完成任务编排\\\", \\\"acceptance_criteria\\\": [\\\"任务进入 queued\\\"], \\\"risk_notes\\\": [\\\"避免状态漂移\\\"], \\\"proposed_steps\\\": [\\\"先分诊\\\", \\\"再执行\\\"]}\"}]}}",
@@ -90,6 +93,7 @@ def test_cli_runtime_bridge_posts_structured_result_callback(monkeypatch) -> Non
         "stdout_truncated": False,
         "stderr_truncated": False,
     }
+    assert captured_command["command"][0:4] == ["openclaw", "agent", "--agent", "main"]
     assert captured_request["url"] == "http://sidecar.local/hooks/openclaw/result"
     normalized_headers = {str(key).lower(): value for key, value in captured_request["headers"].items()}
     assert normalized_headers["x-openclaw-hooks-token"] == "token-001"
@@ -330,9 +334,6 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
         assert payload["bridge"] == {
             "kind": "openclaw_cli",
             "agent_id": "main",
-            "openclaw_bin": "openclaw",
-            "timeout_sec": 45.0,
-            "result_callback_url": "http://127.0.0.1:9600/hooks/openclaw/result",
             "role_agent_mapping": {
                 "configured_agents": {
                     "coordinator": "coord-v2",
@@ -340,8 +341,132 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
                     "reviewer": "review-v2",
                 },
                 "fallback_agent_id": "main",
-                "routing_mode": "single_agent_fallback",
+                "routing_mode": "role_specific",
             },
+            "openclaw_bin": "openclaw",
+            "timeout_sec": 45.0,
+            "result_callback_url": "http://127.0.0.1:9600/hooks/openclaw/result",
         }
     finally:
         runner.stop()
+
+
+def test_cli_runtime_bridge_uses_role_specific_agent_when_configured(monkeypatch) -> None:
+    captured_command: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured_command["command"] = list(command)
+        payload = {
+            "runId": "run-006",
+            "status": "ok",
+            "summary": "completed",
+            "result": {
+                "payloads": [
+                    {
+                        "text": json.dumps(
+                            {
+                                "review_decision": "approve",
+                                "review_comment": "looks good",
+                                "reasons": ["all checks passed"],
+                                "required_rework": [],
+                                "residual_risk": "low",
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                ]
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr="")
+
+    def fake_urlopen(request, timeout: float = 0):
+        return _FakeHttpResponse(201, {"ok": True})
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.urlopen", fake_urlopen)
+
+    bridge = CliOpenClawRuntimeBridge(
+        "main",
+        openclaw_bin="openclaw",
+        role_agent_ids={"reviewer": "review-v2"},
+    )
+    result = bridge.submit_invoke(
+        {
+            "invoke_id": "inv-006",
+            "task_id": "task-006",
+            "role": "reviewer",
+            "trace_id": "trace-006",
+            "goal": "验证 reviewer 走独立 agent",
+            "input": {"title": "role specific reviewer", "message": "请审查。"},
+            "constraints": {"structured_output_required": True},
+            "callbacks": {
+                "result": {
+                    "url": "http://sidecar.local/hooks/openclaw/result",
+                    "headers": {"X-OpenClaw-Hooks-Token": "token-006"},
+                }
+            },
+        }
+    )
+
+    assert captured_command["command"][0:4] == ["openclaw", "agent", "--agent", "review-v2"]
+    assert result["response"]["selected_agent_id"] == "review-v2"
+
+
+def test_cli_runtime_bridge_falls_back_to_default_agent_when_role_mapping_missing(monkeypatch) -> None:
+    captured_command: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured_command["command"] = list(command)
+        payload = {
+            "runId": "run-007",
+            "status": "ok",
+            "summary": "completed",
+            "result": {
+                "payloads": [
+                    {
+                        "text": json.dumps(
+                            {
+                                "result_summary": "done",
+                                "evidence": ["e1"],
+                                "open_issues": [],
+                                "followup_notes": [],
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                ]
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload, ensure_ascii=False), stderr="")
+
+    def fake_urlopen(request, timeout: float = 0):
+        return _FakeHttpResponse(201, {"ok": True})
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.urlopen", fake_urlopen)
+
+    bridge = CliOpenClawRuntimeBridge(
+        "main",
+        openclaw_bin="openclaw",
+        role_agent_ids={"coordinator": "coord-v2"},
+    )
+    result = bridge.submit_invoke(
+        {
+            "invoke_id": "inv-007",
+            "task_id": "task-007",
+            "role": "executor",
+            "trace_id": "trace-007",
+            "goal": "验证缺失映射时回退 main",
+            "input": {"title": "role fallback executor", "message": "请执行。"},
+            "constraints": {"structured_output_required": True},
+            "callbacks": {
+                "result": {
+                    "url": "http://sidecar.local/hooks/openclaw/result",
+                    "headers": {"X-OpenClaw-Hooks-Token": "token-007"},
+                }
+            },
+        }
+    )
+
+    assert captured_command["command"][0:4] == ["openclaw", "agent", "--agent", "main"]
+    assert result["response"]["selected_agent_id"] == "main"

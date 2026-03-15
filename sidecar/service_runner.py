@@ -835,6 +835,11 @@ class ServiceRunner:
             agent_id = (parsed.netloc or parsed.path or "").lstrip("/").strip() or "main"
             return CliOpenClawRuntimeBridge(
                 agent_id=agent_id,
+                role_agent_ids={
+                    role: agent_id
+                    for role, agent_id in self._configured_role_agent_ids().items()
+                    if agent_id
+                },
                 result_callback_url=local_result_callback_url or result_callback_url,
                 hooks_token=hooks_token,
                 timeout_sec=float(self._config.get("runtime_cli_timeout_sec") or 120.0),
@@ -863,14 +868,7 @@ class ServiceRunner:
         except Exception:
             logger.exception("Failed to describe runtime bridge")
             return {"kind": bridge.__class__.__name__, "describe_error": True}
-        payload = dict(metadata or {"kind": bridge.__class__.__name__})
-        if str(payload.get("kind") or "") == "openclaw_cli":
-            payload["role_agent_mapping"] = {
-                "configured_agents": self._configured_role_agent_ids(),
-                "fallback_agent_id": payload.get("agent_id"),
-                "routing_mode": "single_agent_fallback",
-            }
-        return payload
+        return dict(metadata or {"kind": bridge.__class__.__name__})
 
     def _configured_role_agent_ids(self) -> dict[str, str | None]:
         return {

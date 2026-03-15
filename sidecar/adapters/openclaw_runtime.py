@@ -42,6 +42,7 @@ class CliOpenClawRuntimeBridge:
         self,
         agent_id: str,
         *,
+        role_agent_ids: dict[str, str] | None = None,
         openclaw_bin: str | None = None,
         result_callback_url: str = "",
         hooks_token: str = "",
@@ -51,6 +52,7 @@ class CliOpenClawRuntimeBridge:
         if not normalized_agent_id:
             raise ValueError("agent_id is required")
         self.agent_id = normalized_agent_id
+        self.role_agent_ids = self._normalize_role_agent_ids(role_agent_ids)
         self.timeout_sec = float(timeout_sec)
         self.openclaw_bin = self._resolve_openclaw_bin(openclaw_bin)
         self.result_callback_url = str(result_callback_url).strip()
@@ -78,7 +80,11 @@ class CliOpenClawRuntimeBridge:
                 retryable=False,
             )
 
-        cli_payload, cli_process = self._run_agent_command(self._build_agent_message(request_payload))
+        selected_agent_id = self._select_agent_id(request_payload)
+        cli_payload, cli_process = self._run_agent_command(
+            self._build_agent_message(request_payload),
+            agent_id=selected_agent_id,
+        )
         result_payload = {
             "invoke_id": invoke_id,
             "task_id": task_id,
@@ -102,6 +108,7 @@ class CliOpenClawRuntimeBridge:
             "status_code": int(callback_response.get("status_code") or 200),
             "submission_id": cli_payload.get("runId"),
             "response": {
+                "selected_agent_id": selected_agent_id,
                 "cli": cli_payload,
                 "cli_process": cli_process,
                 "callback": callback_response,
@@ -115,6 +122,11 @@ class CliOpenClawRuntimeBridge:
         return {
             "kind": "openclaw_cli",
             "agent_id": self.agent_id,
+            "role_agent_mapping": {
+                "configured_agents": dict(self.role_agent_ids),
+                "fallback_agent_id": self.agent_id,
+                "routing_mode": "role_specific" if self.role_agent_ids else "single_agent_fallback",
+            },
             "openclaw_bin": self.openclaw_bin,
             "timeout_sec": self.timeout_sec,
             "result_callback_url": self.result_callback_url or None,
@@ -165,12 +177,12 @@ class CliOpenClawRuntimeBridge:
             "message": None,
         }
 
-    def _run_agent_command(self, message: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _run_agent_command(self, message: str, *, agent_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         command = [
             self.openclaw_bin,
             "agent",
             "--agent",
-            self.agent_id,
+            agent_id,
             "--message",
             message,
             "--json",
@@ -272,6 +284,23 @@ class CliOpenClawRuntimeBridge:
                 json.dumps(task_packet, ensure_ascii=False, indent=2),
             ]
         )
+
+    def _select_agent_id(self, payload: dict[str, Any]) -> str:
+        role = str(payload.get("role") or "").strip()
+        configured = self.role_agent_ids.get(role)
+        if configured:
+            return configured
+        return self.agent_id
+
+    def _normalize_role_agent_ids(self, role_agent_ids: dict[str, str] | None) -> dict[str, str]:
+        if not role_agent_ids:
+            return {}
+        normalized: dict[str, str] = {}
+        for role in ("coordinator", "executor", "reviewer"):
+            value = str(role_agent_ids.get(role) or "").strip()
+            if value:
+                normalized[role] = value
+        return normalized
 
     def _role_output_schema(self, role: str) -> dict[str, Any]:
         if role == "coordinator":
