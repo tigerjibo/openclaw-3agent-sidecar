@@ -174,6 +174,7 @@ Useful docs for handoff and operations:
 - `docs/architecture.md`
 - `docs/product-requirements-roadmap.md`
 - `docs/operations-runbook.md`
+- `docs/plans/release-note-template.md`
 
 Quick integration smoke command:
 
