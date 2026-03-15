@@ -126,9 +126,8 @@ class TaskRecovery:
     def recover_retryable_submit_failures(self) -> list[str]:
         rows = self.app.conn.execute(
             """
-            SELECT task_id FROM tasks
+                        SELECT task_id, dispatch_error_kind, dispatch_error_retryable FROM tasks
             WHERE dispatch_status = 'submit_failed'
-              AND COALESCE(dispatch_error_retryable, 0) = 1
               AND state NOT IN ('done', 'cancelled')
             ORDER BY created_at ASC, task_id ASC
             """
@@ -136,6 +135,8 @@ class TaskRecovery:
 
         recovered: list[str] = []
         for row in rows:
+            if not self._should_retry_submit_failure(kind=row["dispatch_error_kind"], retryable=row["dispatch_error_retryable"]):
+                continue
             task_id = str(row["task_id"])
             trace_id = get_task_trace_id(get_task_by_id(self.app.conn, task_id))
             update_task_fields(
@@ -161,6 +162,11 @@ class TaskRecovery:
             recovered.append(task_id)
         self.app.conn.commit()
         return recovered
+
+    def _should_retry_submit_failure(self, *, kind: Any, retryable: Any) -> bool:
+        if int(retryable or 0) != 1:
+            return False
+        return str(kind or "").strip() != "configuration_error"
 
     def _recover_state_timeouts(
         self,

@@ -7,7 +7,7 @@ from ..adapters.agent_invoke import AgentInvokeAdapter
 from ..adapters.openclaw_runtime import OpenClawRequestError, OpenClawRuntimeBridge
 from ..api import TaskKernelApiApp
 from ..events import append_event
-from ..models import get_task_by_id, get_task_trace_id, update_task_fields
+from ..models import get_task_by_id, get_task_trace_id, mark_task_blocked, update_task_fields
 from ..time_utils import utc_isoformat, utc_now
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,7 @@ class TaskDispatcher:
         submission_status_code = None
         submission_retryable = False
         submission_error_details = None
+        submission_recovery_action = None
         if self.runtime_bridge is not None:
             try:
                 runtime_submission = self.runtime_bridge.submit_invoke(invoke_payload)
@@ -92,11 +93,13 @@ class TaskDispatcher:
                 submission_status_code = exc.status_code
                 submission_retryable = bool(exc.retryable)
                 submission_error_details = dict(exc.details or {})
+                submission_recovery_action = self._submission_recovery_action(kind=submission_error_kind, retryable=submission_retryable)
             except Exception as exc:
                 logger.warning("Runtime submission failed for task=%s trace=%s msg=%s", task_id, trace_id, exc)
                 submission_error = str(exc)
                 submission_error_kind = "unexpected_error"
                 submission_retryable = False
+                submission_recovery_action = self._submission_recovery_action(kind=submission_error_kind, retryable=submission_retryable)
         if submission_error is None:
             if self.runtime_bridge is not None:
                 self._record_runtime_submission(
@@ -123,17 +126,28 @@ class TaskDispatcher:
                 update_task_fields(
                     self.app.conn,
                     task_id,
-                    dispatch_status="submit_failed",
-                    dispatch_role=role,
+                    dispatch_status="idle" if submission_recovery_action == "block" else "submit_failed",
+                    dispatch_role=None if submission_recovery_action == "block" else role,
                     dispatch_started_at=None,
                     dispatch_attempts=attempts,
                     last_invoke_id=invoke_payload["invoke_id"],
-                    last_event_summary=f"dispatch failed {role}: {invoke_payload['invoke_id']}",
+                    last_event_summary=(
+                        f"dispatch blocked {role}: {invoke_payload['invoke_id']}"
+                        if submission_recovery_action == "block"
+                        else f"dispatch failed {role}: {invoke_payload['invoke_id']}"
+                    ),
                     dispatch_error_kind=submission_error_kind,
                     dispatch_error_status_code=submission_status_code,
                     dispatch_error_retryable=int(submission_retryable),
                     dispatch_error_message=submission_error,
                 )
+                if submission_recovery_action == "block":
+                    mark_task_blocked(
+                        self.app.conn,
+                        task_id,
+                        reason=f"runtime configuration requires manual repair: {submission_error}",
+                        waiting_on="runtime_configuration",
+                    )
                 self.app.conn.execute(
                     "UPDATE tasks SET last_event_at = datetime('now') WHERE task_id = ?",
                     (task_id,),
@@ -143,20 +157,25 @@ class TaskDispatcher:
                     task_id=task_id,
                     event_type="task.dispatch_failed",
                     actor="dispatcher",
-                    action=role,
-                    summary=f"dispatch failed {role}: {submission_error}",
+                    action=f"{role}:{submission_recovery_action or 'hold'}",
+                    summary=(
+                        f"dispatch blocked {role}: {submission_error}"
+                        if submission_recovery_action == "block"
+                        else f"dispatch failed {role}: {submission_error}"
+                    ),
                     idempotency_key=f"dispatch-failed:{invoke_payload['invoke_id']}",
                     trace_id=trace_id,
                 )
                 self._record_runtime_submission(
                     task_id=task_id,
                     trace_id=trace_id,
-                    status="submit_failed",
+                    status="blocked" if submission_recovery_action == "block" else "submit_failed",
                     runtime_submission=runtime_submission,
                     error_kind=submission_error_kind,
                     error_message=submission_error,
                     status_code=submission_status_code,
                     retryable=submission_retryable,
+                    recovery_action=submission_recovery_action,
                 )
                 return {
                     "dispatched": False,
@@ -169,6 +188,7 @@ class TaskDispatcher:
                     "submission_status_code": submission_status_code,
                     "submission_retryable": submission_retryable,
                     "submission_error_details": submission_error_details,
+                    "submission_recovery_action": submission_recovery_action,
                 }
 
         logger.info(
@@ -186,6 +206,7 @@ class TaskDispatcher:
             error_message=submission_error,
             status_code=submission_status_code,
             retryable=submission_retryable,
+            recovery_action="ignored",
         )
         return {
             "dispatched": True,
@@ -197,6 +218,7 @@ class TaskDispatcher:
             "submission_status_code": submission_status_code,
             "submission_retryable": submission_retryable,
             "submission_error_details": submission_error_details,
+            "submission_recovery_action": "ignored",
             "submission_state": "late_failure_ignored",
         }
 
@@ -211,6 +233,7 @@ class TaskDispatcher:
         error_message: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
+        recovery_action: str | None = None,
     ) -> None:
         submission = dict(runtime_submission or {})
         response = dict(submission.get("response") or {})
@@ -223,10 +246,19 @@ class TaskDispatcher:
             "last_status_code": status_code if status_code is not None else submission.get("status_code"),
             "last_retryable": bool(retryable),
             "last_result_status": response.get("result_status"),
+            "last_recovery_action": recovery_action,
             "last_error_kind": error_kind if error_kind is not None else response.get("result_error_kind"),
             "last_error_message": error_message if error_message is not None else response.get("result_error_message"),
         }
         self._last_runtime_submission_summary = summary
+
+    def _submission_recovery_action(self, *, kind: str | None, retryable: bool) -> str:
+        normalized_kind = str(kind or "").strip()
+        if normalized_kind == "configuration_error":
+            return "block"
+        if retryable:
+            return "retry"
+        return "hold"
 
     def _now_expr_value(self) -> None:
         return None
