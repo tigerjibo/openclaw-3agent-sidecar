@@ -4,7 +4,9 @@ import json
 import subprocess
 from typing import Any
 
-from sidecar.adapters.openclaw_runtime import CliOpenClawRuntimeBridge
+import pytest
+
+from sidecar.adapters.openclaw_runtime import CliOpenClawRuntimeBridge, OpenClawRequestError
 from sidecar.service_runner import ServiceRunner
 
 
@@ -79,6 +81,13 @@ def test_cli_runtime_bridge_posts_structured_result_callback(monkeypatch) -> Non
 
     assert result["accepted"] is True
     assert result["submission_id"] == "run-001"
+    assert result["response"]["cli_process"] == {
+        "exit_code": 0,
+        "stdout_excerpt": "plugin logs\n{\"runId\": \"run-001\", \"status\": \"ok\", \"summary\": \"completed\", \"result\": {\"payloads\": [{\"text\": \"{\\\"goal\\\": \\\"完成任务编排\\\", \\\"acceptance_criteria\\\": [\\\"任务进入 queued\\\"], \\\"risk_notes\\\": [\\\"避免状态漂移\\\"], \\\"proposed_steps\\\": [\\\"先分诊\\\", \\\"再执行\\\"]}\"}]}}",
+        "stderr_excerpt": None,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
     assert captured_request["url"] == "http://sidecar.local/hooks/openclaw/result"
     normalized_headers = {str(key).lower(): value for key, value in captured_request["headers"].items()}
     assert normalized_headers["x-openclaw-hooks-token"] == "token-001"
@@ -126,10 +135,61 @@ def test_cli_runtime_bridge_reports_failed_result_when_agent_output_is_not_json(
     )
 
     assert result["accepted"] is True
+    assert result["response"]["cli_process"] == {
+        "exit_code": 0,
+        "stdout_excerpt": "{\"runId\": \"run-002\", \"status\": \"ok\", \"summary\": \"completed\", \"result\": {\"payloads\": [{\"text\": \"definitely not json\"}]}}",
+        "stderr_excerpt": None,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
     assert result["response"]["result_error_kind"] == "payload_error"
     assert captured_request["body"]["status"] == "failed"
     assert captured_request["body"]["error_kind"] == "payload_error"
     assert "JSON object not found" in captured_request["body"]["error"]
+
+
+def test_cli_runtime_bridge_surfaces_process_summary_when_agent_command_fails(monkeypatch) -> None:
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            17,
+            stdout="stdout line that should still be visible to operators",
+            stderr="stderr line that explains why the CLI invocation failed",
+        )
+
+    monkeypatch.setattr("sidecar.adapters.openclaw_runtime.subprocess.run", fake_run)
+
+    bridge = CliOpenClawRuntimeBridge("main", openclaw_bin="openclaw")
+
+    with pytest.raises(OpenClawRequestError) as exc_info:
+        bridge.submit_invoke(
+            {
+                "invoke_id": "inv-003",
+                "task_id": "task-003",
+                "role": "coordinator",
+                "trace_id": "trace-003",
+                "goal": "验证失败时也返回进程摘要",
+                "input": {"title": "失败路径", "message": "请故意返回错误。"},
+                "constraints": {"structured_output_required": True},
+                "callbacks": {
+                    "result": {
+                        "url": "http://sidecar.local/hooks/openclaw/result",
+                        "headers": {"X-OpenClaw-Hooks-Token": "token-003"},
+                    }
+                },
+            }
+        )
+
+    exc = exc_info.value
+    assert exc.kind == "runtime_error"
+    assert exc.status_code == 17
+    assert exc.details == {
+        "exit_code": 17,
+        "stdout_excerpt": "stdout line that should still be visible to operators",
+        "stderr_excerpt": "stderr line that explains why the CLI invocation failed",
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
 
 
 def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:

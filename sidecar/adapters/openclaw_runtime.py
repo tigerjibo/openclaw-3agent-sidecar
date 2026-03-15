@@ -13,11 +13,20 @@ from urllib.request import Request, urlopen
 class OpenClawRequestError(RuntimeError):
     """Structured error from OpenClaw HTTP requests."""
 
-    def __init__(self, message: str, *, kind: str, status_code: int | None = None, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str,
+        status_code: int | None = None,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
         self.status_code = status_code
         self.retryable = retryable
+        self.details = dict(details or {})
 
 
 class OpenClawRuntimeBridge(Protocol):
@@ -69,7 +78,7 @@ class CliOpenClawRuntimeBridge:
                 retryable=False,
             )
 
-        cli_payload = self._run_agent_command(self._build_agent_message(request_payload))
+        cli_payload, cli_process = self._run_agent_command(self._build_agent_message(request_payload))
         result_payload = {
             "invoke_id": invoke_id,
             "task_id": task_id,
@@ -94,6 +103,7 @@ class CliOpenClawRuntimeBridge:
             "submission_id": cli_payload.get("runId"),
             "response": {
                 "cli": cli_payload,
+                "cli_process": cli_process,
                 "callback": callback_response,
                 "result_status": result_payload["status"],
                 "result_error_kind": result_payload.get("error_kind"),
@@ -155,7 +165,7 @@ class CliOpenClawRuntimeBridge:
             "message": None,
         }
 
-    def _run_agent_command(self, message: str) -> dict[str, Any]:
+    def _run_agent_command(self, message: str) -> tuple[dict[str, Any], dict[str, Any]]:
         command = [
             self.openclaw_bin,
             "agent",
@@ -187,14 +197,16 @@ class CliOpenClawRuntimeBridge:
                 retryable=True,
             ) from exc
 
+        process_summary = self._process_summary(completed)
         raw = (completed.stdout or "").strip()
         if completed.returncode != 0:
             details = (completed.stderr or raw or "").strip()
             raise OpenClawRequestError(
-                f"OpenClaw CLI agent command failed: {details}",
+                f"OpenClaw CLI agent command failed with exit code {completed.returncode}: {details}",
                 kind="runtime_error",
                 status_code=completed.returncode,
                 retryable=False,
+                details=process_summary,
             )
 
         try:
@@ -204,6 +216,7 @@ class CliOpenClawRuntimeBridge:
                 f"OpenClaw CLI returned non-JSON output: {raw[:400]}",
                 kind="payload_error",
                 retryable=False,
+                details=process_summary,
             ) from exc
 
         if str(payload.get("status") or "").strip() != "ok":
@@ -211,8 +224,9 @@ class CliOpenClawRuntimeBridge:
                 f"OpenClaw CLI returned non-ok status: {payload}",
                 kind="runtime_error",
                 retryable=False,
+                details=process_summary,
             )
-        return payload
+        return payload, process_summary
 
     def _build_request_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         request_payload = dict(payload)
@@ -431,6 +445,26 @@ class CliOpenClawRuntimeBridge:
         if "unsupported review_decision" in message:
             return "schema_error", message
         return "payload_error", message
+
+    def _process_summary(self, completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+        stdout_excerpt, stdout_truncated = self._excerpt(completed.stdout)
+        stderr_excerpt, stderr_truncated = self._excerpt(completed.stderr)
+        return {
+            "exit_code": int(completed.returncode),
+            "stdout_excerpt": stdout_excerpt,
+            "stderr_excerpt": stderr_excerpt,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+        }
+
+    def _excerpt(self, text: str | None, *, limit: int = 400) -> tuple[str | None, bool]:
+        raw = str(text or "")
+        normalized = raw.strip()
+        if not normalized:
+            return None, False
+        if len(normalized) <= limit:
+            return normalized, False
+        return normalized[:limit], True
 
 
 class OpenClawGatewayClient:
