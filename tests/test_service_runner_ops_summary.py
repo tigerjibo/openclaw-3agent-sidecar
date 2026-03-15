@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from urllib.request import urlopen
 
 from sidecar.adapters.ingress import IngressAdapter
+from sidecar.adapters.openclaw_runtime import OpenClawRequestError
 from sidecar.models import update_task_fields
 from sidecar.service_runner import ServiceRunner
 from sidecar.time_utils import utc_now
@@ -51,6 +52,7 @@ def test_service_runner_ops_summary_payload_aggregates_health_readiness_and_main
     assert payload["integration"]["status"] == "local_only"
     assert payload["integration"]["gateway"]["client_available"] is False
     assert payload["integration"]["runtime_invoke"]["bridge_available"] is False
+    assert payload["integration"]["runtime_invoke"]["recent_submission"] is None
     assert payload["integration"]["probe"] == {
         "status": "not_configured",
         "probed_at": None,
@@ -205,6 +207,7 @@ def test_ops_summary_payload_reports_partial_runtime_integration_without_public_
         "invoke_url_configured": True,
         "bridge_available": True,
         "bridge": {"kind": "FakeRuntimeBridge"},
+        "recent_submission": None,
         "result_callback_ready": False,
         "result_callback_url": None,
         "missing_requirements": ["public_base_url"],
@@ -406,6 +409,51 @@ def test_ops_summary_payload_reports_probe_results_for_gateway_and_runtime() -> 
             "failure_stats": {"recent_failure_count": 1, "consecutive_failure_count": 1},
         },
     }
+
+
+def test_ops_summary_payload_surfaces_recent_runtime_submission_summary() -> None:
+    class FakeRuntimeBridge:
+        def submit_invoke(self, payload: dict[str, object]) -> dict[str, object]:
+            raise OpenClawRequestError(
+                "callback rejected",
+                kind="client_error",
+                status_code=401,
+                retryable=False,
+            )
+
+        def probe_connectivity(self) -> dict[str, object]:
+            return {"status": "reachable", "ok": True, "status_code": 204, "kind": None, "message": None}
+
+    runner = ServiceRunner(
+        config={
+            "host": "127.0.0.1",
+            "port": 0,
+            "default_runtime_mode": "legacy_single",
+            "maintenance_interval_sec": 0,
+            "integration_probe_ttl_sec": 300,
+            "runtime_invoke_url": "openclaw-cli://main",
+        }
+    )
+    runner._dispatcher.runtime_bridge = FakeRuntimeBridge()  # type: ignore[assignment]
+
+    try:
+        runner.start()
+        task_id = _create_task(runner, request_id="req-service-runner-ops-summary-recent-runtime-submit")
+        dispatch_result = runner._dispatcher.dispatch_task(task_id)
+        payload = runner.ops_summary_payload(now=datetime(2026, 3, 13, 2, 2, 0))
+    finally:
+        runner.stop()
+
+    assert dispatch_result["reason"] == "submit_failed"
+    summary = payload["integration"]["runtime_invoke"]["recent_submission"]
+    assert summary is not None
+    assert summary["last_submit_at"] is not None
+    assert summary["last_submit_status"] == "submit_failed"
+    assert summary["last_task_id"] == task_id
+    assert summary["last_status_code"] == 401
+    assert summary["last_retryable"] is False
+    assert summary["last_error_kind"] == "client_error"
+    assert summary["last_error_message"] == "callback rejected"
 
 
 def test_ops_summary_payload_preserves_structured_probe_failure_reasons() -> None:

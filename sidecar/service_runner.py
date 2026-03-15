@@ -206,6 +206,7 @@ class ServiceRunner:
             "invoke_url_configured": runtime_invoke_url_configured,
             "bridge_available": runtime_invoke_url_configured,
             "bridge": self._runtime_bridge_metadata(),
+            "recent_submission": self._dispatcher.recent_runtime_submission_summary(),
             "result_callback_ready": runtime_invoke_url_configured and not runtime_callback_missing_requirements,
             "result_callback_url": result_callback_url if runtime_invoke_url_configured and result_callback_url else None,
             "missing_requirements": runtime_callback_missing_requirements,

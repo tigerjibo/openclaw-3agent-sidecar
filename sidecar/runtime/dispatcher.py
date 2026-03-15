@@ -8,6 +8,7 @@ from ..adapters.openclaw_runtime import OpenClawRequestError, OpenClawRuntimeBri
 from ..api import TaskKernelApiApp
 from ..events import append_event
 from ..models import get_task_by_id, get_task_trace_id, update_task_fields
+from ..time_utils import utc_isoformat, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,12 @@ class TaskDispatcher:
         self.app = app
         self.invoke_adapter = AgentInvokeAdapter(app)
         self.runtime_bridge = runtime_bridge
+        self._last_runtime_submission_summary: dict[str, Any] | None = None
+
+    def recent_runtime_submission_summary(self) -> dict[str, Any] | None:
+        if self._last_runtime_submission_summary is None:
+            return None
+        return dict(self._last_runtime_submission_summary)
 
     def dispatch_task(self, task_id: str, *, force: bool = False) -> dict[str, Any]:
         task = get_task_by_id(self.app.conn, task_id)
@@ -91,6 +98,13 @@ class TaskDispatcher:
                 submission_error_kind = "unexpected_error"
                 submission_retryable = False
         if submission_error is None:
+            if self.runtime_bridge is not None:
+                self._record_runtime_submission(
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    status="accepted",
+                    runtime_submission=runtime_submission,
+                )
             return {
                 "dispatched": True,
                 "task_id": task_id,
@@ -134,6 +148,16 @@ class TaskDispatcher:
                     idempotency_key=f"dispatch-failed:{invoke_payload['invoke_id']}",
                     trace_id=trace_id,
                 )
+                self._record_runtime_submission(
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    status="submit_failed",
+                    runtime_submission=runtime_submission,
+                    error_kind=submission_error_kind,
+                    error_message=submission_error,
+                    status_code=submission_status_code,
+                    retryable=submission_retryable,
+                )
                 return {
                     "dispatched": False,
                     "reason": "submit_failed",
@@ -153,6 +177,16 @@ class TaskDispatcher:
             trace_id,
             invoke_payload["invoke_id"],
         )
+        self._record_runtime_submission(
+            task_id=task_id,
+            trace_id=trace_id,
+            status="late_failure_ignored",
+            runtime_submission=runtime_submission,
+            error_kind=submission_error_kind,
+            error_message=submission_error,
+            status_code=submission_status_code,
+            retryable=submission_retryable,
+        )
         return {
             "dispatched": True,
             "task_id": task_id,
@@ -165,6 +199,34 @@ class TaskDispatcher:
             "submission_error_details": submission_error_details,
             "submission_state": "late_failure_ignored",
         }
+
+    def _record_runtime_submission(
+        self,
+        *,
+        task_id: str,
+        trace_id: str,
+        status: str,
+        runtime_submission: dict[str, Any] | None,
+        error_kind: str | None = None,
+        error_message: str | None = None,
+        status_code: int | None = None,
+        retryable: bool = False,
+    ) -> None:
+        submission = dict(runtime_submission or {})
+        response = dict(submission.get("response") or {})
+        summary = {
+            "last_submit_at": utc_isoformat(utc_now()),
+            "last_submit_status": status,
+            "last_submission_id": submission.get("submission_id"),
+            "last_task_id": task_id,
+            "last_trace_id": trace_id,
+            "last_status_code": status_code if status_code is not None else submission.get("status_code"),
+            "last_retryable": bool(retryable),
+            "last_result_status": response.get("result_status"),
+            "last_error_kind": error_kind if error_kind is not None else response.get("result_error_kind"),
+            "last_error_message": error_message if error_message is not None else response.get("result_error_message"),
+        }
+        self._last_runtime_submission_summary = summary
 
     def _now_expr_value(self) -> None:
         return None

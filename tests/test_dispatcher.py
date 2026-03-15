@@ -1,4 +1,5 @@
 from sidecar.adapters.ingress import IngressAdapter
+from sidecar.adapters.openclaw_runtime import OpenClawRequestError
 from sidecar.api import TaskKernelApiApp
 from sidecar.models import get_task_by_id
 from sidecar.runtime.dispatcher import TaskDispatcher
@@ -77,3 +78,49 @@ def test_dispatcher_submits_invoke_payload_to_runtime_bridge() -> None:
     assert len(runtime_bridge.calls) == 1
     assert runtime_bridge.calls[0]["task_id"] == task_id
     assert runtime_bridge.calls[0]["role"] == "coordinator"
+    summary = dispatcher.recent_runtime_submission_summary()
+    assert summary is not None
+    assert summary["last_submit_status"] == "accepted"
+    assert summary["last_submission_id"] == "sub-001"
+    assert summary["last_task_id"] == task_id
+    assert summary["last_error_kind"] is None
+    assert summary["last_error_message"] is None
+
+
+def test_dispatcher_records_failed_runtime_submission_summary() -> None:
+    class FailingRuntimeBridge:
+        def submit_invoke(self, payload: dict[str, object]) -> dict[str, object]:
+            raise OpenClawRequestError(
+                "callback rejected",
+                kind="client_error",
+                status_code=401,
+                retryable=False,
+            )
+
+    app = _build_app()
+    ingress = IngressAdapter(app)
+    dispatcher = TaskDispatcher(app, runtime_bridge=FailingRuntimeBridge())
+    task_id = ingress.ingest(
+        {
+            "request_id": "req-dispatch-bridge-fail-001",
+            "source": "feishu",
+            "source_user_id": "user-dispatch-bridge-fail",
+            "entrypoint": "institutional_task",
+            "title": "派发失败摘要",
+            "message": "让 dispatcher 记录最近一次失败摘要。",
+            "task_type_hint": "engineering",
+        }
+    )["task_id"]
+
+    result = dispatcher.dispatch_task(task_id)
+
+    assert result["dispatched"] is False
+    assert result["reason"] == "submit_failed"
+    summary = dispatcher.recent_runtime_submission_summary()
+    assert summary is not None
+    assert summary["last_submit_status"] == "submit_failed"
+    assert summary["last_task_id"] == task_id
+    assert summary["last_status_code"] == 401
+    assert summary["last_retryable"] is False
+    assert summary["last_error_kind"] == "client_error"
+    assert summary["last_error_message"] == "callback rejected"
