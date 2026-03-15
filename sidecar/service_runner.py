@@ -835,6 +835,7 @@ class ServiceRunner:
                 agent_id=agent_id,
                 result_callback_url=local_result_callback_url or result_callback_url,
                 hooks_token=hooks_token,
+                timeout_sec=float(self._config.get("runtime_cli_timeout_sec") or 120.0),
             )
         return HttpOpenClawRuntimeBridge(
             invoke_url,

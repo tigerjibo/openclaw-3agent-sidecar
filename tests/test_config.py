@@ -27,6 +27,14 @@ def test_load_config_reads_integration_probe_ttl_from_env(monkeypatch) -> None:
     assert cfg["integration_probe_ttl_sec"] == 42
 
 
+def test_load_config_reads_runtime_cli_timeout_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_RUNTIME_CLI_TIMEOUT_SEC", "45.5")
+
+    cfg = load_config()
+
+    assert cfg["runtime_cli_timeout_sec"] == 45.5
+
+
 def test_load_config_reads_public_base_url_from_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENCLAW_PUBLIC_BASE_URL", "https://sidecar.example.com/base/")
 

@@ -314,6 +314,7 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
             "db_path": ":memory:",
             "maintenance_interval_sec": 0,
             "runtime_invoke_url": "openclaw-cli://main",
+            "runtime_cli_timeout_sec": 45.0,
             "public_base_url": "https://example.com/sidecar",
             "hooks_token": "token-003",
         }
@@ -327,7 +328,7 @@ def test_service_runner_builds_cli_runtime_bridge_from_scheme() -> None:
             "kind": "openclaw_cli",
             "agent_id": "main",
             "openclaw_bin": "openclaw",
-            "timeout_sec": 120.0,
+            "timeout_sec": 45.0,
             "result_callback_url": "http://127.0.0.1:9600/hooks/openclaw/result",
         }
     finally:

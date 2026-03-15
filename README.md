@@ -203,6 +203,7 @@ Current gateway / hook related config includes:
 - `OPENCLAW_HOOK_REGISTRATION_RETRY_SEC`
 - `OPENCLAW_HOOK_REGISTRATION_FAILURE_ALERT_AFTER`
 - `OPENCLAW_RUNTIME_INVOKE_URL`
+- `OPENCLAW_RUNTIME_CLI_TIMEOUT_SEC`
 - `OPENCLAW_INTEGRATION_PROBE_TTL_SEC`
 
 For a **real HTTP invoke -> result callback** loop, treat these three values as a set:
@@ -215,6 +216,12 @@ For a **real HTTP invoke -> result callback** loop, treat these three values as 
 
 - direct HTTP invoke endpoint, for example `http://127.0.0.1:8080/runtime/invoke`
 - OpenClaw CLI agent bridge, for example `openclaw-cli://main`
+
+When the CLI bridge style is used, `OPENCLAW_RUNTIME_CLI_TIMEOUT_SEC` controls
+how long the sidecar waits for `openclaw agent --agent <agent_id> --json`
+before classifying the submission as a timeout. This timeout is independent from
+the HTTP runtime bridge timeout so CLI governance can be tuned without changing
+HTTP invoke behavior.
 
 When `openclaw-cli://<agent_id>` is used, the sidecar invokes `openclaw agent --agent <agent_id> --json`, asks the agent to return one strict JSON object for the current sidecar role, and then posts the structured result back into the existing result callback contract.
 

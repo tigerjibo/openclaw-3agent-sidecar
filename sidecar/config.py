@@ -18,6 +18,7 @@ _DEFAULTS: dict[str, Any] = {
     "log_level": "INFO",
     # Integration (only for OpenClaw integration mode)
     "runtime_invoke_url": "",
+    "runtime_cli_timeout_sec": 120.0,
     "integration_probe_ttl_sec": 30.0,
     "hook_registration_retry_sec": 300.0,
     "hook_registration_failure_alert_after": 3,
@@ -27,7 +28,7 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 _INT_KEYS = {"port", "executing_timeout_sec", "reviewing_timeout_sec", "blocked_alert_after_sec", "hook_registration_failure_alert_after"}
-_FLOAT_KEYS = {"maintenance_interval_sec", "integration_probe_ttl_sec", "hook_registration_retry_sec"}
+_FLOAT_KEYS = {"maintenance_interval_sec", "runtime_cli_timeout_sec", "integration_probe_ttl_sec", "hook_registration_retry_sec"}
 _ALIASES: dict[str, tuple[str, ...]] = {
     "db_path": ("SIDECAR_DB_PATH",),
     "log_level": ("SIDECAR_LOG_LEVEL",),
